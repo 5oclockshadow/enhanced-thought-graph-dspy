@@ -1,0 +1,62 @@
+🌌 Enhanced Thought Graph API Server
+==================================================
+🚀 Starting server...
+🔗 API will be available at: http://localhost:57010
+📚 API documentation at: http://localhost:57010/docs
+🎯 Features: Advanced parameters, 3D visualization data, real-time processing
+==================================================
+INFO:     Started server process [8829]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:57010 (Press CTRL+C to quit)
+INFO:     127.0.0.1:49954 - "GET /health HTTP/1.1" 200 OK
+INFO:simple_server:Generating thought graph for: string
+INFO:dspy_program:Enhanced iteration 1, State: SystemState.INITIALIZING
+INFO:dspy_program:Completed enhanced iteration 1, State: SystemState.ANALYZING_INPUT, Should continue: True
+INFO:dspy_program:Enhanced iteration 2, State: SystemState.ANALYZING_INPUT
+INFO:dspy_program:Completed enhanced iteration 2, State: SystemState.GENERATING_CORE, Should continue: True
+INFO:dspy_program:Enhanced iteration 3, State: SystemState.GENERATING_CORE
+INFO:dspy_program:Completed enhanced iteration 3, State: SystemState.COMPLETED, Should continue: False
+INFO:     172.17.0.1:42012 - "POST /generate HTTP/1.1" 200 OK
+ERROR:simple_server:Validation error: 1 validation error for GraphParameters
+max_depth
+  Input should be less than or equal to 10 [type=less_than_equal, input_value=100, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.11/v/less_than_equal
+INFO:     172.17.0.1:37264 - "POST /generate HTTP/1.1" 400 Bad Request
+INFO:simple_server:Generating thought graph for: string
+INFO:dspy_program:Enhanced iteration 1, State: SystemState.INITIALIZING
+INFO:dspy_program:Completed enhanced iteration 1, State: SystemState.ANALYZING_INPUT, Should continue: True
+INFO:dspy_program:Enhanced iteration 2, State: SystemState.ANALYZING_INPUT
+INFO:dspy_program:Completed enhanced iteration 2, State: SystemState.GENERATING_CORE, Should continue: True
+INFO:dspy_program:Enhanced iteration 3, State: SystemState.GENERATING_CORE
+INFO:dspy_program:Completed enhanced iteration 3, State: SystemState.DEEPENING_DEPTH, Should continue: True
+INFO:dspy_program:Enhanced iteration 4, State: SystemState.DEEPENING_DEPTH
+INFO:dspy_program:Completed enhanced iteration 4, State: SystemState.CONNECTING_IDEAS, Should continue: True
+INFO:dspy_program:Enhanced iteration 5, State: SystemState.CONNECTING_IDEAS
+INFO:dspy_program:Completed enhanced iteration 5, State: SystemState.CLUSTERING, Should continue: True
+INFO:dspy_program:Enhanced iteration 6, State: SystemState.CLUSTERING
+INFO:dspy_program:Completed enhanced iteration 6, State: SystemState.VALIDATING, Should continue: True
+INFO:dspy_program:Enhanced iteration 7, State: SystemState.VALIDATING
+INFO:dspy_program:Completed enhanced iteration 7, State: SystemState.OPTIMIZING, Should continue: True
+INFO:dspy_program:Enhanced iteration 8, State: SystemState.OPTIMIZING
+INFO:dspy_program:Completed enhanced iteration 8, State: SystemState.COMPLETED, Should continue: False
+INFO:     172.17.0.1:50092 - "POST /generate HTTP/1.1" 200 OK
+INFO:simple_server:Generating thought graph for: artificial intelligence ethics
+INFO:dspy_program:Enhanced iteration 1, State: SystemState.INITIALIZING
+INFO:dspy_program:Completed enhanced iteration 1, State: SystemState.ANALYZING_INPUT, Should continue: True
+INFO:dspy_program:Enhanced iteration 2, State: SystemState.ANALYZING_INPUT
+INFO:dspy_program:Completed enhanced iteration 2, State: SystemState.GENERATING_CORE, Should continue: True
+INFO:dspy_program:Enhanced iteration 3, State: SystemState.GENERATING_CORE
+INFO:dspy_program:Completed enhanced iteration 3, State: SystemState.DEEPENING_DEPTH, Should continue: True
+INFO:dspy_program:Enhanced iteration 4, State: SystemState.DEEPENING_DEPTH
+INFO:dspy_program:Completed enhanced iteration 4, State: SystemState.CONNECTING_IDEAS, Should continue: True
+INFO:dspy_program:Enhanced iteration 5, State: SystemState.CONNECTING_IDEAS
+INFO:dspy_program:Completed enhanced iteration 5, State: SystemState.CLUSTERING, Should continue: True
+INFO:dspy_program:Enhanced iteration 6, State: SystemState.CLUSTERING
+INFO:dspy_program:Completed enhanced iteration 6, State: SystemState.VALIDATING, Should continue: True
+INFO:dspy_program:Enhanced iteration 7, State: SystemState.VALIDATING
+INFO:dspy_program:Completed enhanced iteration 7, State: SystemState.OPTIMIZING, Should continue: True
+INFO:dspy_program:Enhanced iteration 8, State: SystemState.OPTIMIZING
+INFO:dspy_program:Completed enhanced iteration 8, State: SystemState.COMPLETED, Should continue: False
+INFO:     127.0.0.1:57734 - "GET /generate/artificial%20intelligence%20ethics?max_nodes=10&generation_mode=analytical HTTP/1.1" 200 OK
+INFO:     172.17.0.1:32882 - "GET / HTTP/1.1" 200 OK

@@ -329,15 +329,15 @@ if __name__ == "__main__":
     print("🌌 Enhanced Thought Graph API Server")
     print("=" * 50)
     print("🚀 Starting server...")
-    print("🔗 API will be available at: http://localhost:52336")
-    print("📚 API documentation at: http://localhost:52336/docs")
+    print("🔗 API will be available at: http://localhost:57010")
+    print("📚 API documentation at: http://localhost:57010/docs")
     print("🎯 Features: Advanced parameters, 3D visualization data, real-time processing")
     print("=" * 50)
     
     uvicorn.run(
         "simple_server:app",
         host="0.0.0.0",
-        port=52336,
+        port=57010,
         reload=False,
         log_level="info"
     )
