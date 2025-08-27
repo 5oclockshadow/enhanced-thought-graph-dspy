@@ -17,7 +17,7 @@ from models import (
     ExpandedInput, GraphParameters, GenerationMode, ClusteringMethod,
     ThoughtType, ConnectionType, UnifiedOutput
 )
-from dspy_program import AdvancedThoughtReactor
+from dspy_program import AutonomousThoughtReactor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,7 +35,7 @@ templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Initialize the thought reactor
-reactor = AdvancedThoughtReactor()
+reactor = AutonomousThoughtReactor()
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):

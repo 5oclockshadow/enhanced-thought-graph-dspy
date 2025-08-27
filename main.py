@@ -8,7 +8,7 @@ import sys
 import asyncio
 import uvicorn
 from models import ExpandedInput, GraphParameters, GenerationMode, ClusteringMethod
-from dspy_program import AdvancedThoughtReactor
+from dspy_program import AutonomousThoughtReactor
 
 def run_demo():
     """Run enhanced demonstration with multiple scenarios"""
@@ -64,7 +64,7 @@ def run_demo():
         }
     }
     
-    reactor = AdvancedThoughtReactor()
+    reactor = AutonomousThoughtReactor()
     
     for scenario_name, config in scenarios.items():
         print(f"\n🎯 Scenario: {scenario_name}")
