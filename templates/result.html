@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thought Graph - {{ input_text }}</title>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 20px;
+            padding: 20px;
+        }
+        
+        .graph-container {
+            height: 600px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            position: relative;
+        }
+        
+        .sidebar {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding: 8px;
+            background: white;
+            border-radius: 5px;
+        }
+        
+        .thoughts-list {
+            margin-top: 20px;
+        }
+        
+        .thought-item {
+            background: white;
+            margin-bottom: 10px;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #4facfe;
+        }
+        
+        .thought-type {
+            font-size: 0.8em;
+            font-weight: bold;
+            color: #666;
+            text-transform: uppercase;
+        }
+        
+        .thought-content {
+            margin: 5px 0;
+            font-weight: 500;
+        }
+        
+        .thought-meta {
+            font-size: 0.8em;
+            color: #888;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background: #4facfe;
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            transition: all 0.3s ease;
+        }
+        
+        .back-link:hover {
+            background: #3a8bfe;
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧠 Thought Graph</h1>
+            <p>"{{ input_text }}"</p>
+        </div>
+        
+        <div class="content">
+            <div class="graph-container" id="thoughtGraph"></div>
+            
+            <div class="sidebar">
+                <h3>📊 Graph Statistics</h3>
+                {% if result.graph %}
+                <div class="stat-item">
+                    <span>Valid Thoughts:</span>
+                    <span>{{ result.graph.thoughts|length }}</span>
+                </div>
+                <div class="stat-item">
+                    <span>Connections:</span>
+                    <span>{{ result.graph.connections|length }}</span>
+                </div>
+                <div class="stat-item">
+                    <span>Clusters:</span>
+                    <span>{{ result.graph.clusters|length }}</span>
+                </div>
+                <div class="stat-item">
+                    <span>Max Depth:</span>
+                    <span>{{ result.graph.max_depth_achieved }}</span>
+                </div>
+                <div class="stat-item">
+                    <span>Quality Score:</span>
+                    <span>{{ "%.1f"|format(result.graph.overall_quality * 100) }}%</span>
+                </div>
+                {% endif %}
+                
+                <h3>🎨 Node Types</h3>
+                <div style="display: flex; flex-direction: column; gap: 5px;">
+                    <div style="display: flex; align-items: center;">
+                        <div style="width: 12px; height: 12px; background: #2E8B57; border-radius: 50%; margin-right: 8px;"></div>
+                        <span>Concept</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div style="width: 12px; height: 12px; background: #4169E1; border-radius: 50%; margin-right: 8px;"></div>
+                        <span>Association</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div style="width: 12px; height: 12px; background: #FF69B4; border-radius: 50%; margin-right: 8px;"></div>
+                        <span>Emotion</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div style="width: 12px; height: 12px; background: #FF6347; border-radius: 50%; margin-right: 8px;"></div>
+                        <span>Question</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div style="width: 12px; height: 12px; background: #32CD32; border-radius: 50%; margin-right: 8px;"></div>
+                        <span>Solution</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="padding: 20px;">
+            <h3>💭 Generated Thoughts</h3>
+            <div class="thoughts-list">
+                {% if result.graph and result.graph.thoughts %}
+                {% for thought in result.graph.thoughts %}
+                <div class="thought-item">
+                    <div class="thought-type">{{ thought.thought_type.value.replace('_', ' ').title() }}</div>
+                    <div class="thought-content">{{ thought.content }}</div>
+                    <div class="thought-meta">
+                        <span>Confidence: {{ "%.1f"|format(thought.confidence * 100) }}%</span>
+                        <span>Depth: {{ thought.depth }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+                {% endif %}
+            </div>
+            
+            <a href="/" class="back-link">← Generate Another Graph</a>
+        </div>
+    </div>
+
+    <script>
+        // Initialize the network
+        const container = document.getElementById('thoughtGraph');
+        const data = {{ viz_data|safe }};
+        
+        const options = {
+            nodes: {
+                shape: 'dot',
+                size: 16,
+                font: {
+                    size: 12,
+                    color: '#333333'
+                },
+                borderWidth: 2,
+                shadow: true
+            },
+            edges: {
+                width: 2,
+                color: {inherit: 'from'},
+                smooth: {
+                    type: 'continuous'
+                },
+                arrows: {
+                    to: {enabled: true, scaleFactor: 0.8}
+                }
+            },
+            physics: {
+                stabilization: {iterations: 100},
+                barnesHut: {
+                    gravitationalConstant: -2000,
+                    centralGravity: 0.3,
+                    springLength: 95,
+                    springConstant: 0.04,
+                    damping: 0.09
+                }
+            },
+            interaction: {
+                hover: true,
+                tooltipDelay: 200
+            }
+        };
+
+        const network = new vis.Network(container, data, options);
+        
+        // Add click event for nodes
+        network.on("click", function (params) {
+            if (params.nodes.length > 0) {
+                const nodeId = params.nodes[0];
+                const node = data.nodes.find(n => n.id === nodeId);
+                if (node && node.metadata) {
+                    console.log('Node details:', node.metadata);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
