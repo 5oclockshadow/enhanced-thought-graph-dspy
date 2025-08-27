@@ -140,6 +140,92 @@ async def generate_thoughts(
         logger.error(f"Generation error: {e}")
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
+@app.post("/generate3d", response_class=HTMLResponse)
+async def generate_thoughts_3d(
+    request: Request,
+    input_text: str = Form(...),
+    max_nodes: int = Form(20),
+    max_depth: int = Form(4),
+    generation_mode: str = Form("balanced"),
+    creativity_level: float = Form(0.7),
+    divergence_factor: float = Form(0.6),
+    depth_vs_breadth: float = Form(0.5),
+    clustering_method: str = Form("semantic"),
+    max_clusters: int = Form(5),
+    min_confidence: float = Form(0.3),
+    domain_focus: Optional[str] = Form(None),
+    perspective: Optional[str] = Form(None),
+    enable_meta_thinking: bool = Form(False),
+    enable_emotional_layer: bool = Form(True),
+    enable_practical_layer: bool = Form(True),
+    enable_risk_analysis: bool = Form(False),
+    focus_areas: str = Form(""),
+    constraints: str = Form(""),
+    requirements: str = Form("")
+):
+    """Enhanced 3D thought generation with immersive visualization"""
+    try:
+        # Parse list inputs
+        focus_areas_list = [area.strip() for area in focus_areas.split(",") if area.strip()]
+        constraints_list = [constraint.strip() for constraint in constraints.split(",") if constraint.strip()]
+        requirements_list = [req.strip() for req in requirements.split(",") if req.strip()]
+        
+        # Create enhanced parameters
+        parameters = GraphParameters(
+            max_nodes=max_nodes,
+            max_depth=max_depth,
+            generation_mode=GenerationMode(generation_mode),
+            creativity_level=creativity_level,
+            divergence_factor=divergence_factor,
+            depth_vs_breadth=depth_vs_breadth,
+            clustering_method=ClusteringMethod(clustering_method),
+            max_clusters=max_clusters,
+            min_confidence=min_confidence,
+            domain_focus=domain_focus if domain_focus else None,
+            perspective=perspective if perspective else None,
+            enable_meta_thinking=enable_meta_thinking,
+            enable_emotional_layer=enable_emotional_layer,
+            enable_practical_layer=enable_practical_layer,
+            enable_risk_analysis=enable_risk_analysis
+        )
+        
+        # Create enhanced input
+        expanded_input = ExpandedInput(
+            original_text=input_text,
+            parameters=parameters,
+            focus_areas=focus_areas_list,
+            constraints=constraints_list,
+            requirements=requirements_list,
+            context={
+                "web_interface": True,
+                "visualization": "3d",
+                "timestamp": str(datetime.now())
+            }
+        )
+        
+        # Generate thought graph
+        logger.info(f"Generating enhanced 3D thought graph for: {input_text}")
+        result = reactor(expanded_input, use_fake_data=True)
+        
+        # Prepare 3D visualization data
+        viz_data = prepare_3d_visualization_data(result)
+        
+        return templates.TemplateResponse("3d_result.html", {
+            "request": request,
+            "input_text": input_text,
+            "result": result,
+            "viz_data": json.dumps(viz_data),
+            "parameters": parameters,
+            "success": result.success
+        })
+        
+    except ValidationError as e:
+        logger.error(f"Validation error: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid parameters: {e}")
+    except Exception as e:
+        logger.error(f"3D Generation error: {e}")
+        raise HTTPException(status_code=500, detail=f"3D Generation failed: {e}")
+
 @app.get("/api/generate/{input_text}")
 async def api_generate(
     input_text: str,
@@ -542,6 +628,216 @@ def lighten_color(color: str, factor: float) -> str:
     """Lighten a hex color by a factor"""
     # Simple lightening - in production, use proper color manipulation library
     return color  # Placeholder
+
+def prepare_3d_visualization_data(result: UnifiedOutput) -> Dict[str, Any]:
+    """Prepare comprehensive data for 3D visualization with spatial positioning"""
+    if not result.graph or not result.graph.thoughts:
+        return {"nodes": [], "edges": [], "clusters": [], "layout": "force"}
+    
+    # Enhanced 3D node data with spatial coordinates
+    nodes = []
+    for thought in result.graph.thoughts:
+        # Calculate 3D position based on thought attributes
+        depth_z = thought.depth * 50  # Z-axis represents conceptual depth
+        confidence_y = (thought.confidence - 0.5) * 100  # Y-axis represents confidence
+        relevance_x = (thought.relevance_score - 0.5) * 100  # X-axis represents relevance
+        
+        node = {
+            "id": thought.id,
+            "label": thought.content[:40] + "..." if len(thought.content) > 40 else thought.content,
+            "title": f"<b>{thought.thought_type.value.replace('_', ' ').title()}</b><br/>"
+                    f"Content: {thought.content}<br/>"
+                    f"Confidence: {thought.confidence:.1%}<br/>"
+                    f"Depth: {thought.depth}<br/>"
+                    f"Relevance: {thought.relevance_score:.1%}<br/>"
+                    f"Novelty: {thought.novelty_score:.1%}<br/>"
+                    f"Practicality: {thought.practicality_score:.1%}<br/>"
+                    f"Impact: {thought.potential_impact}/5<br/>"
+                    f"Complexity: {thought.complexity_level}/5",
+            "group": thought.thought_type.value,
+            "size": 5 + (thought.confidence * 15),  # Size based on confidence
+            "color": get_3d_node_color(thought),
+            "position": {
+                "x": relevance_x,
+                "y": confidence_y,
+                "z": depth_z
+            },
+            "metadata": {
+                "thought_type": thought.thought_type.value,
+                "confidence": thought.confidence,
+                "depth": thought.depth,
+                "relevance": thought.relevance_score,
+                "novelty": thought.novelty_score,
+                "practicality": thought.practicality_score,
+                "impact": thought.potential_impact,
+                "complexity": thought.complexity_level,
+                "tags": thought.tags,
+                "keywords": thought.keywords,
+                "domain": thought.domain,
+                "cluster_id": thought.cluster_id
+            }
+        }
+        nodes.append(node)
+    
+    # Enhanced 3D edge data with connection strength visualization
+    edges = []
+    for connection in result.graph.connections:
+        edge = {
+            "id": connection.id,
+            "from": connection.source_id,
+            "to": connection.target_id,
+            "label": connection.connection_type.value.replace("_", " ").title(),
+            "strength": connection.strength,
+            "width": 1 + (connection.strength * 5),
+            "color": get_3d_edge_color(connection),
+            "opacity": 0.4 + (connection.confidence * 0.6),
+            "metadata": {
+                "connection_type": connection.connection_type.value,
+                "strength": connection.strength,
+                "confidence": connection.confidence,
+                "weight": connection.weight,
+                "bidirectional": connection.is_bidirectional,
+                "description": connection.description
+            }
+        }
+        edges.append(edge)
+    
+    # 3D cluster data with spatial grouping
+    clusters = []
+    for cluster in result.graph.clusters:
+        # Calculate cluster center based on member nodes
+        cluster_nodes = [n for n in nodes if n["metadata"]["cluster_id"] == cluster.id]
+        if cluster_nodes:
+            center_x = sum(n["position"]["x"] for n in cluster_nodes) / len(cluster_nodes)
+            center_y = sum(n["position"]["y"] for n in cluster_nodes) / len(cluster_nodes)
+            center_z = sum(n["position"]["z"] for n in cluster_nodes) / len(cluster_nodes)
+            
+            cluster_data = {
+                "id": cluster.id,
+                "name": cluster.name,
+                "description": cluster.description,
+                "thought_ids": cluster.thought_ids,
+                "coherence_score": cluster.coherence_score,
+                "importance_score": cluster.importance_score,
+                "cluster_type": cluster.cluster_type,
+                "color": get_cluster_color(cluster.cluster_type),
+                "size": len(cluster.thought_ids),
+                "center": {
+                    "x": center_x,
+                    "y": center_y,
+                    "z": center_z
+                },
+                "radius": 30 + (len(cluster.thought_ids) * 5)
+            }
+            clusters.append(cluster_data)
+    
+    # 3D-specific layout options and physics
+    layout_options = {
+        "force": {
+            "enabled": True,
+            "iterations": 200,
+            "node_distance": 100,
+            "spring_strength": 0.1,
+            "damping": 0.9
+        },
+        "sphere": {
+            "radius": 150,
+            "distribution": "fibonacci"
+        },
+        "cube": {
+            "size": 200,
+            "grid_spacing": 50
+        },
+        "spiral": {
+            "radius": 120,
+            "height": 300,
+            "turns": 3
+        }
+    }
+    
+    # Enhanced statistics for 3D visualization
+    stats = {
+        "total_nodes": len(nodes),
+        "total_edges": len(edges),
+        "total_clusters": len(clusters),
+        "max_depth": max([n["metadata"]["depth"] for n in nodes]) if nodes else 0,
+        "avg_confidence": sum([n["metadata"]["confidence"] for n in nodes]) / len(nodes) if nodes else 0,
+        "connectivity": len(edges) / len(nodes) if nodes else 0,
+        "spatial_distribution": {
+            "x_range": [min(n["position"]["x"] for n in nodes), max(n["position"]["x"] for n in nodes)] if nodes else [0, 0],
+            "y_range": [min(n["position"]["y"] for n in nodes), max(n["position"]["y"] for n in nodes)] if nodes else [0, 0],
+            "z_range": [min(n["position"]["z"] for n in nodes), max(n["position"]["z"] for n in nodes)] if nodes else [0, 0]
+        },
+        "thought_type_distribution": {},
+        "connection_type_distribution": {},
+        "depth_distribution": {}
+    }
+    
+    # Calculate distributions for 3D analysis
+    for node in nodes:
+        thought_type = node["metadata"]["thought_type"]
+        depth = node["metadata"]["depth"]
+        stats["thought_type_distribution"][thought_type] = stats["thought_type_distribution"].get(thought_type, 0) + 1
+        stats["depth_distribution"][depth] = stats["depth_distribution"].get(depth, 0) + 1
+    
+    for edge in edges:
+        conn_type = edge["metadata"]["connection_type"]
+        stats["connection_type_distribution"][conn_type] = stats["connection_type_distribution"].get(conn_type, 0) + 1
+    
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "clusters": clusters,
+        "stats": stats,
+        "layout_options": layout_options,
+        "visualization_type": "3d"
+    }
+
+def get_3d_node_color(thought: Thought) -> str:
+    """Get 3D-optimized color for nodes based on thought type"""
+    colors = {
+        ThoughtType.CORE_CONCEPT: "#ff6b6b",
+        ThoughtType.SUB_CONCEPT: "#4ecdc4", 
+        ThoughtType.QUESTION: "#45b7d1",
+        ThoughtType.SOLUTION: "#96ceb4",
+        ThoughtType.CHALLENGE: "#ff8c69",
+        ThoughtType.OPPORTUNITY: "#98fb98",
+        ThoughtType.INSIGHT: "#feca57",
+        ThoughtType.HYPOTHESIS: "#87ceeb",
+        ThoughtType.ASSOCIATION: "#a8e6cf",
+        ThoughtType.ANALOGY: "#dda0dd",
+        ThoughtType.EMOTION: "#ff9ff3",
+        ThoughtType.MEMORY: "#dda0dd",
+        ThoughtType.PATTERN: "#dda0dd",
+        ThoughtType.TREND: "#87ceeb",
+        ThoughtType.CAUSE: "#f0a0a0",
+        ThoughtType.EFFECT: "#a0f0a0",
+        ThoughtType.ALTERNATIVE: "#ff8c69",
+        ThoughtType.SYNTHESIS: "#dda0dd",
+        ThoughtType.CRITIQUE: "#ff6b6b"
+    }
+    return colors.get(thought.thought_type, "#888888")
+
+def get_3d_edge_color(connection: Connection) -> str:
+    """Get 3D-optimized color for edges based on connection type"""
+    colors = {
+        ConnectionType.LEADS_TO: "#4facfe",
+        ConnectionType.CAUSED_BY: "#ff6b6b",
+        ConnectionType.SIMILAR_TO: "#4ecdc4",
+        ConnectionType.OPPOSITE_TO: "#ff8c69",
+        ConnectionType.PART_OF: "#96ceb4",
+        ConnectionType.CONTAINS: "#45b7d1",
+        ConnectionType.ENABLES: "#feca57",
+        ConnectionType.PREVENTS: "#ff9ff3",
+        ConnectionType.SUPPORTS: "#a8e6cf",
+        ConnectionType.CONFLICTS_WITH: "#f0a0a0",
+        ConnectionType.BUILDS_ON: "#98fb98",
+        ConnectionType.QUESTIONS: "#dda0dd",
+        ConnectionType.ANSWERS: "#87ceeb",
+        ConnectionType.TRIGGERS: "#ff8c69",
+        ConnectionType.TRANSFORMS: "#dda0dd"
+    }
+    return colors.get(connection.connection_type, "#888888")
 
 # Add datetime import
 from datetime import datetime

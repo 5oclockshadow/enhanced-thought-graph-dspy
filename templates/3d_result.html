@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Thought Graph - {{ input_text }}</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS3DRenderer.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+            color: white;
+            overflow: hidden;
+        }
+
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            z-index: 1000;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .header h1 {
+            font-size: 1.8em;
+            margin-bottom: 5px;
+            background: linear-gradient(45deg, #4facfe, #00f2fe);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            opacity: 0.8;
+            font-size: 1em;
+        }
+
+        .controls {
+            position: absolute;
+            top: 100px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 1000;
+            min-width: 250px;
+        }
+
+        .controls h3 {
+            margin-bottom: 15px;
+            color: #4facfe;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        .control-group input[type="range"] {
+            width: 100%;
+            margin-bottom: 5px;
+        }
+
+        .control-group button {
+            background: linear-gradient(45deg, #4facfe, #00f2fe);
+            border: none;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.8em;
+            margin: 2px;
+            transition: all 0.3s ease;
+        }
+
+        .control-group button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(79, 172, 254, 0.4);
+        }
+
+        .stats {
+            position: absolute;
+            top: 100px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 1000;
+            min-width: 200px;
+        }
+
+        .stats h3 {
+            margin-bottom: 15px;
+            color: #4facfe;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+
+        .stat-value {
+            color: #00f2fe;
+            font-weight: bold;
+        }
+
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 15px;
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 1000;
+        }
+
+        .legend h4 {
+            margin-bottom: 10px;
+            color: #4facfe;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+            font-size: 0.8em;
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 0.8em;
+            pointer-events: none;
+            z-index: 2000;
+            max-width: 300px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            display: none;
+        }
+
+        .back-link {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: linear-gradient(45deg, #4facfe, #00f2fe);
+            color: white;
+            text-decoration: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .back-link:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(79, 172, 254, 0.4);
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 1000;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(79, 172, 254, 0.3);
+            border-top: 3px solid #4facfe;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .instructions {
+            position: absolute;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 10px 20px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 1000;
+            font-size: 0.8em;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌌 3D Thought Graph</h1>
+            <p>"{{ input_text }}"</p>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="loading-spinner"></div>
+            <p>Generating 3D thought space...</p>
+        </div>
+
+        <div class="controls">
+            <h3>🎮 Controls</h3>
+            
+            <div class="control-group">
+                <label>Node Size</label>
+                <input type="range" id="nodeSize" min="0.5" max="3" step="0.1" value="1">
+            </div>
+            
+            <div class="control-group">
+                <label>Connection Opacity</label>
+                <input type="range" id="connectionOpacity" min="0.1" max="1" step="0.1" value="0.6">
+            </div>
+            
+            <div class="control-group">
+                <label>Spread Factor</label>
+                <input type="range" id="spreadFactor" min="50" max="300" step="10" value="150">
+            </div>
+            
+            <div class="control-group">
+                <button onclick="resetCamera()">🎯 Reset View</button>
+                <button onclick="toggleAnimation()">⏯️ Animation</button>
+            </div>
+            
+            <div class="control-group">
+                <button onclick="changeLayout('sphere')">🌍 Sphere</button>
+                <button onclick="changeLayout('cube')">📦 Cube</button>
+                <button onclick="changeLayout('spiral')">🌀 Spiral</button>
+                <button onclick="changeLayout('force')">⚡ Force</button>
+            </div>
+        </div>
+
+        <div class="stats">
+            <h3>📊 Graph Stats</h3>
+            {% if result.graph %}
+            <div class="stat-item">
+                <span>Thoughts:</span>
+                <span class="stat-value">{{ result.graph.thoughts|length }}</span>
+            </div>
+            <div class="stat-item">
+                <span>Connections:</span>
+                <span class="stat-value">{{ result.graph.connections|length }}</span>
+            </div>
+            <div class="stat-item">
+                <span>Clusters:</span>
+                <span class="stat-value">{{ result.graph.clusters|length }}</span>
+            </div>
+            <div class="stat-item">
+                <span>Max Depth:</span>
+                <span class="stat-value">{{ result.graph.max_depth_achieved }}</span>
+            </div>
+            <div class="stat-item">
+                <span>Quality:</span>
+                <span class="stat-value">{{ "%.1f"|format(result.graph.overall_quality * 100) }}%</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="legend">
+            <h4>🎨 Node Types</h4>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #ff6b6b;"></div>
+                <span>Core Concept</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #4ecdc4;"></div>
+                <span>Sub Concept</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #45b7d1;"></div>
+                <span>Question</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #96ceb4;"></div>
+                <span>Solution</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #feca57;"></div>
+                <span>Insight</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #ff9ff3;"></div>
+                <span>Emotion</span>
+            </div>
+        </div>
+
+        <div class="instructions">
+            🖱️ Left click + drag to rotate • 🖱️ Right click + drag to pan • 🎡 Scroll to zoom
+        </div>
+
+        <div id="canvas-container"></div>
+        
+        <div class="tooltip" id="tooltip"></div>
+        
+        <a href="/" class="back-link">← Generate New Graph</a>
+    </div>
+
+    <script>
+        // Global variables
+        let scene, camera, renderer, controls;
+        let nodes = [], connections = [];
+        let nodeObjects = [], connectionObjects = [];
+        let animationId;
+        let isAnimating = true;
+        let currentLayout = 'force';
+        
+        // Graph data from server
+        const graphData = {{ viz_data|safe }};
+        
+        // Color schemes for different thought types
+        const thoughtColors = {
+            'core_concept': 0xff6b6b,
+            'sub_concept': 0x4ecdc4,
+            'question': 0x45b7d1,
+            'solution': 0x96ceb4,
+            'insight': 0xfeca57,
+            'emotion': 0xff9ff3,
+            'association': 0xa8e6cf,
+            'analogy': 0xdda0dd,
+            'challenge': 0xff8c69,
+            'opportunity': 0x98fb98,
+            'hypothesis': 0x87ceeb,
+            'pattern': 0xdda0dd,
+            'cause': 0xf0a0a0,
+            'effect': 0xa0f0a0,
+            'default': 0x888888
+        };
+
+        // Initialize 3D scene
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a0a);
+            
+            // Add fog for depth perception
+            scene.fog = new THREE.Fog(0x0a0a0a, 100, 1000);
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera.position.set(200, 200, 200);
+            
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+            
+            // Add controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 50;
+            controls.maxDistance = 800;
+            
+            // Add lights
+            addLights();
+            
+            // Create graph
+            createGraph();
+            
+            // Add event listeners
+            addEventListeners();
+            
+            // Start animation
+            animate();
+            
+            // Hide loading
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        function addLights() {
+            // Ambient light
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+            
+            // Directional light
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(200, 200, 200);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+            
+            // Point lights for atmosphere
+            const pointLight1 = new THREE.PointLight(0x4facfe, 0.5, 300);
+            pointLight1.position.set(100, 100, 100);
+            scene.add(pointLight1);
+            
+            const pointLight2 = new THREE.PointLight(0x00f2fe, 0.5, 300);
+            pointLight2.position.set(-100, -100, -100);
+            scene.add(pointLight2);
+        }
+        
+        function createGraph() {
+            // Clear existing objects
+            clearGraph();
+            
+            // Create nodes
+            graphData.nodes.forEach((nodeData, index) => {
+                createNode(nodeData, index);
+            });
+            
+            // Create connections
+            graphData.edges.forEach(edgeData => {
+                createConnection(edgeData);
+            });
+            
+            // Position nodes based on current layout
+            positionNodes(currentLayout);
+        }
+        
+        function createNode(nodeData, index) {
+            const thoughtType = nodeData.metadata.thought_type;
+            const color = thoughtColors[thoughtType] || thoughtColors.default;
+            const size = 3 + (nodeData.metadata.confidence * 7);
+            
+            // Create node geometry and material
+            const geometry = new THREE.SphereGeometry(size, 16, 16);
+            const material = new THREE.MeshPhongMaterial({
+                color: color,
+                transparent: true,
+                opacity: 0.8 + (nodeData.metadata.confidence * 0.2),
+                shininess: 100
+            });
+            
+            const nodeMesh = new THREE.Mesh(geometry, material);
+            nodeMesh.castShadow = true;
+            nodeMesh.receiveShadow = true;
+            
+            // Add glow effect
+            const glowGeometry = new THREE.SphereGeometry(size * 1.2, 16, 16);
+            const glowMaterial = new THREE.MeshBasicMaterial({
+                color: color,
+                transparent: true,
+                opacity: 0.2,
+                side: THREE.BackSide
+            });
+            const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
+            
+            // Create group
+            const nodeGroup = new THREE.Group();
+            nodeGroup.add(nodeMesh);
+            nodeGroup.add(glowMesh);
+            
+            // Store metadata
+            nodeGroup.userData = {
+                ...nodeData,
+                originalSize: size,
+                index: index
+            };
+            
+            scene.add(nodeGroup);
+            nodeObjects.push(nodeGroup);
+        }
+        
+        function createConnection(edgeData) {
+            const sourceNode = nodeObjects.find(n => n.userData.id === edgeData.from);
+            const targetNode = nodeObjects.find(n => n.userData.id === edgeData.to);
+            
+            if (!sourceNode || !targetNode) return;
+            
+            // Create connection line
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array([
+                sourceNode.position.x, sourceNode.position.y, sourceNode.position.z,
+                targetNode.position.x, targetNode.position.y, targetNode.position.z
+            ]);
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            const material = new THREE.LineBasicMaterial({
+                color: 0x4facfe,
+                transparent: true,
+                opacity: 0.6 * edgeData.metadata.strength,
+                linewidth: 2
+            });
+            
+            const line = new THREE.Line(geometry, material);
+            line.userData = edgeData;
+            
+            scene.add(line);
+            connectionObjects.push(line);
+        }
+        
+        function positionNodes(layout) {
+            const spreadFactor = parseInt(document.getElementById('spreadFactor').value);
+            
+            switch(layout) {
+                case 'sphere':
+                    positionNodesSphere(spreadFactor);
+                    break;
+                case 'cube':
+                    positionNodesCube(spreadFactor);
+                    break;
+                case 'spiral':
+                    positionNodesSpiral(spreadFactor);
+                    break;
+                case 'force':
+                default:
+                    positionNodesForce(spreadFactor);
+                    break;
+            }
+            
+            updateConnections();
+        }
+        
+        function positionNodesSphere(radius) {
+            nodeObjects.forEach((node, index) => {
+                const phi = Math.acos(-1 + (2 * index) / nodeObjects.length);
+                const theta = Math.sqrt(nodeObjects.length * Math.PI) * phi;
+                
+                node.position.x = radius * Math.cos(theta) * Math.sin(phi);
+                node.position.y = radius * Math.sin(theta) * Math.sin(phi);
+                node.position.z = radius * Math.cos(phi);
+            });
+        }
+        
+        function positionNodesCube(size) {
+            const gridSize = Math.ceil(Math.cbrt(nodeObjects.length));
+            const spacing = size / gridSize;
+            
+            nodeObjects.forEach((node, index) => {
+                const x = (index % gridSize) - gridSize / 2;
+                const y = Math.floor((index / gridSize) % gridSize) - gridSize / 2;
+                const z = Math.floor(index / (gridSize * gridSize)) - gridSize / 2;
+                
+                node.position.x = x * spacing;
+                node.position.y = y * spacing;
+                node.position.z = z * spacing;
+            });
+        }
+        
+        function positionNodesSpiral(radius) {
+            const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+            
+            nodeObjects.forEach((node, index) => {
+                const y = 1 - (index / (nodeObjects.length - 1)) * 2;
+                const radiusAtY = Math.sqrt(1 - y * y) * radius;
+                const theta = goldenAngle * index;
+                
+                node.position.x = Math.cos(theta) * radiusAtY;
+                node.position.y = y * radius;
+                node.position.z = Math.sin(theta) * radiusAtY;
+            });
+        }
+        
+        function positionNodesForce(spread) {
+            // Simple force-directed layout based on depth and connections
+            nodeObjects.forEach((node, index) => {
+                const depth = node.userData.metadata.depth || 1;
+                const angle = (index / nodeObjects.length) * Math.PI * 2;
+                const radius = depth * spread / 4;
+                
+                node.position.x = Math.cos(angle) * radius + (Math.random() - 0.5) * spread / 2;
+                node.position.y = (depth - 3) * spread / 3 + (Math.random() - 0.5) * spread / 4;
+                node.position.z = Math.sin(angle) * radius + (Math.random() - 0.5) * spread / 2;
+            });
+        }
+        
+        function updateConnections() {
+            connectionObjects.forEach(connection => {
+                const sourceNode = nodeObjects.find(n => n.userData.id === connection.userData.from);
+                const targetNode = nodeObjects.find(n => n.userData.id === connection.userData.to);
+                
+                if (sourceNode && targetNode) {
+                    const positions = connection.geometry.attributes.position.array;
+                    positions[0] = sourceNode.position.x;
+                    positions[1] = sourceNode.position.y;
+                    positions[2] = sourceNode.position.z;
+                    positions[3] = targetNode.position.x;
+                    positions[4] = targetNode.position.y;
+                    positions[5] = targetNode.position.z;
+                    connection.geometry.attributes.position.needsUpdate = true;
+                }
+            });
+        }
+        
+        function clearGraph() {
+            // Remove all node objects
+            nodeObjects.forEach(node => {
+                scene.remove(node);
+            });
+            nodeObjects = [];
+            
+            // Remove all connection objects
+            connectionObjects.forEach(connection => {
+                scene.remove(connection);
+            });
+            connectionObjects = [];
+        }
+        
+        function addEventListeners() {
+            // Window resize
+            window.addEventListener('resize', onWindowResize);
+            
+            // Mouse events for tooltips
+            renderer.domElement.addEventListener('mousemove', onMouseMove);
+            renderer.domElement.addEventListener('click', onMouseClick);
+            
+            // Control events
+            document.getElementById('nodeSize').addEventListener('input', updateNodeSize);
+            document.getElementById('connectionOpacity').addEventListener('input', updateConnectionOpacity);
+            document.getElementById('spreadFactor').addEventListener('input', updateSpread);
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function onMouseMove(event) {
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+            
+            const intersects = raycaster.intersectObjects(nodeObjects, true);
+            
+            if (intersects.length > 0) {
+                const node = intersects[0].object.parent;
+                showTooltip(event, node.userData);
+            } else {
+                hideTooltip();
+            }
+        }
+        
+        function onMouseClick(event) {
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+            
+            const intersects = raycaster.intersectObjects(nodeObjects, true);
+            
+            if (intersects.length > 0) {
+                const node = intersects[0].object.parent;
+                focusOnNode(node);
+            }
+        }
+        
+        function showTooltip(event, nodeData) {
+            const tooltip = document.getElementById('tooltip');
+            tooltip.innerHTML = `
+                <strong>${nodeData.metadata.thought_type.replace('_', ' ').toUpperCase()}</strong><br>
+                <em>${nodeData.label}</em><br>
+                Confidence: ${(nodeData.metadata.confidence * 100).toFixed(1)}%<br>
+                Depth: ${nodeData.metadata.depth}<br>
+                Relevance: ${(nodeData.metadata.relevance * 100).toFixed(1)}%<br>
+                Novelty: ${(nodeData.metadata.novelty * 100).toFixed(1)}%
+            `;
+            tooltip.style.left = event.clientX + 10 + 'px';
+            tooltip.style.top = event.clientY + 10 + 'px';
+            tooltip.style.display = 'block';
+        }
+        
+        function hideTooltip() {
+            document.getElementById('tooltip').style.display = 'none';
+        }
+        
+        function focusOnNode(node) {
+            // Animate camera to focus on the selected node
+            const targetPosition = node.position.clone();
+            targetPosition.add(new THREE.Vector3(50, 50, 50));
+            
+            // Smooth camera transition
+            const startPosition = camera.position.clone();
+            const startTime = Date.now();
+            const duration = 1000;
+            
+            function animateCamera() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const eased = 1 - Math.pow(1 - progress, 3); // Ease out cubic
+                
+                camera.position.lerpVectors(startPosition, targetPosition, eased);
+                controls.target.lerp(node.position, eased);
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animateCamera);
+                }
+            }
+            
+            animateCamera();
+        }
+        
+        function updateNodeSize() {
+            const sizeMultiplier = parseFloat(document.getElementById('nodeSize').value);
+            
+            nodeObjects.forEach(node => {
+                const originalSize = node.userData.originalSize;
+                node.children.forEach(child => {
+                    child.scale.setScalar(sizeMultiplier);
+                });
+            });
+        }
+        
+        function updateConnectionOpacity() {
+            const opacity = parseFloat(document.getElementById('connectionOpacity').value);
+            
+            connectionObjects.forEach(connection => {
+                connection.material.opacity = opacity * connection.userData.metadata.strength;
+            });
+        }
+        
+        function updateSpread() {
+            positionNodes(currentLayout);
+        }
+        
+        function resetCamera() {
+            camera.position.set(200, 200, 200);
+            controls.target.set(0, 0, 0);
+            controls.update();
+        }
+        
+        function toggleAnimation() {
+            isAnimating = !isAnimating;
+        }
+        
+        function changeLayout(layout) {
+            currentLayout = layout;
+            positionNodes(layout);
+        }
+        
+        function animate() {
+            animationId = requestAnimationFrame(animate);
+            
+            if (isAnimating) {
+                // Rotate nodes slightly
+                nodeObjects.forEach((node, index) => {
+                    node.rotation.y += 0.005 + (index * 0.001);
+                    
+                    // Gentle floating animation
+                    const time = Date.now() * 0.001;
+                    node.position.y += Math.sin(time + index) * 0.1;
+                });
+                
+                // Update connections
+                updateConnections();
+            }
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        // Initialize when page loads
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>

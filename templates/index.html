@@ -523,9 +523,16 @@
 
                 <!-- Submit Section -->
                 <div class="submit-section">
-                    <button type="submit" class="generate-btn">🚀 Generate Thought Graph</button>
+                    <div style="display: flex; gap: 20px; justify-content: center; align-items: center; flex-wrap: wrap;">
+                        <button type="submit" class="generate-btn" formaction="/generate">
+                            📊 Generate 2D Graph
+                        </button>
+                        <button type="submit" class="generate-btn" formaction="/generate3d" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            🌌 Generate 3D Graph
+                        </button>
+                    </div>
                     <div class="help-text" style="margin-top: 15px;">
-                        This will create an interactive visualization of your ideas with detailed analysis
+                        Choose between 2D interactive visualization or immersive 3D thought space
                     </div>
                 </div>
             </form>
