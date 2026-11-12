@@ -353,6 +353,57 @@ class UnifiedOutput(BaseModel):
         extra = "allow"  # Allow additional fields
 
 # Utility functions for fake data generation with enhanced realism
+
+# Vocabulary pools for every placeholder used across the content templates.
+# Any placeholder not listed here resolves to a neutral fallback word, so
+# template.format() can never raise a KeyError regardless of which template
+# (technology / business / creative) is chosen.
+_TEMPLATE_VOCAB: Dict[str, List[str]] = {
+    "concept": ["innovation", "solution", "system", "platform", "framework"],
+    "field": ["healthcare", "education", "finance", "manufacturing", "logistics"],
+    "system": ["supply chain", "payment", "identity", "data", "scheduling"],
+    "benefit": ["security", "transparency", "efficiency", "trust", "resilience"],
+    "process": ["workflow", "decision-making", "resource allocation", "onboarding"],
+    "monitoring": ["performance", "quality", "compliance", "latency"],
+    "environment": ["factory", "office", "home", "city", "warehouse"],
+    "solution": ["microservices", "automation", "analytics", "orchestration"],
+    "segment": ["SMBs", "enterprise", "prosumers", "mid-market", "developers"],
+    "approach": ["product-led growth", "partnerships", "vertical focus", "self-serve"],
+    "method": ["process", "sourcing", "automation", "consolidation"],
+    "technology": ["AI", "automation", "a mobile app", "an API", "a data platform"],
+    "channel": ["marketplace", "reseller", "direct sales", "community"],
+    "medium1": ["sound", "light", "code", "clay", "textile"],
+    "medium2": ["motion", "shadow", "data", "scent", "voice"],
+    "theme": ["memory", "belonging", "entropy", "renewal", "distance"],
+    "perspective": ["a child", "an outsider", "a machine", "future historians"],
+    "symbol": ["a river", "a seed", "a lighthouse", "a lattice"],
+    "sense": ["touch", "hearing", "sight", "smell"],
+    "emotion": ["wonder", "nostalgia", "tension", "calm"],
+    "tradition1": ["folk music", "calligraphy", "weaving", "oral storytelling"],
+    "tradition2": ["digital art", "generative design", "street performance"],
+}
+
+
+class _SafeVocab(dict):
+    """Mapping used by str.format_map that supplies a word for any key."""
+
+    def __init__(self, rng):
+        super().__init__()
+        self._rng = rng
+
+    def __missing__(self, key: str) -> str:
+        pool = _TEMPLATE_VOCAB.get(key)
+        if pool:
+            return self._rng.choice(pool)
+        # Unknown placeholder: derive a neutral, human-readable fallback.
+        return key.replace("_", " ")
+
+
+def _fill_template(template: str, rng) -> str:
+    """Fill a content template, tolerating any placeholder set."""
+    return template.format_map(_SafeVocab(rng))
+
+
 def generate_fake_thought(thought_type: ThoughtType = None, depth: int = 1, domain: str = None) -> Thought:
     """Generate realistic fake thought data"""
     import random
@@ -388,16 +439,10 @@ def generate_fake_thought(thought_type: ThoughtType = None, depth: int = 1, doma
     # Generate content based on domain and type
     if domain and domain in content_templates:
         template = random.choice(content_templates[domain])
-        # Simple template filling (in real implementation, use more sophisticated NLP)
-        content = template.format(
-            concept=random.choice(["innovation", "solution", "system", "platform"]),
-            field=random.choice(["healthcare", "education", "finance", "manufacturing"]),
-            system=random.choice(["supply chain", "payment", "identity", "data"]),
-            benefit=random.choice(["security", "transparency", "efficiency", "trust"]),
-            process=random.choice(["workflow", "decision-making", "resource allocation"]),
-            monitoring=random.choice(["performance", "quality", "compliance"]),
-            environment=random.choice(["factory", "office", "home", "city"])
-        )
+        # Robust template filling: every placeholder across all templates is
+        # resolvable, and any unforeseen placeholder falls back to a neutral
+        # word so .format() can never raise KeyError.
+        content = _fill_template(template, random)
     else:
         # Generic content based on thought type
         type_content = {

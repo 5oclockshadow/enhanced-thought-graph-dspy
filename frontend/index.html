@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graphos — Graph Intelligence Workspace</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/static/graphos.css">
+</head>
+<body>
+<div id="app" class="app">
+
+  <!-- LEFT RAIL -->
+  <aside class="rail rail--left" aria-label="Products">
+    <div class="brand">
+      <div class="brand__mark" aria-hidden="true">
+        <svg width="17" height="17" viewBox="0 0 24 24"><g fill="#070A10"><circle cx="5" cy="6" r="2.3"/><circle cx="19" cy="7" r="2.3"/><circle cx="12" cy="18" r="2.3"/><path stroke="#070A10" stroke-width="1.6" d="M5 6 L12 18 M19 7 L12 18 M5 6 L19 7" fill="none"/></g></svg>
+      </div>
+      <div>
+        <div class="brand__name">Graphos</div>
+        <div class="brand__sub">Graph Intelligence</div>
+      </div>
+    </div>
+
+    <button type="button" class="btn-new" id="btn-new">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#22D3EE" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      New session
+    </button>
+
+    <nav class="nav" aria-label="Primary">
+      <a href="#" class="nav__item is-active"><span aria-hidden="true">💬</span> Chat</a>
+      <a href="#" class="nav__item"><span aria-hidden="true">🕸</span> Graphs</a>
+      <a href="#" class="nav__item"><span aria-hidden="true">⟳</span> Agents <span class="pill pill--amber">2</span></a>
+      <a href="#" class="nav__item"><span aria-hidden="true">▣</span> Artifacts</a>
+      <a href="#" class="nav__item"><span aria-hidden="true">✦</span> Phoenix Traces</a>
+    </nav>
+
+    <div class="rail__label">Knowledge engines</div>
+    <div class="engines">
+      <span class="engine"><i style="--c:#22D3EE"></i> RAPTOR Trees</span>
+      <span class="engine"><i style="--c:#A855F7"></i> 3D Spatial Graph</span>
+      <span class="engine"><i style="--c:#34D399"></i> 4D Spatio-Temporal</span>
+    </div>
+
+    <div class="rail__foot">
+      <button type="button" class="model-chip" id="model-chip">
+        <span class="dot dot--green" aria-hidden="true"></span>
+        <span>Claude Opus 4.8</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B7A8E" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="user">
+        <span class="user__avatar" aria-hidden="true">G</span>
+        <span class="user__meta"><b>Graphos Labs</b><small>Enterprise · Phoenix on</small></span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- CENTER -->
+  <main class="center">
+    <header class="topbar">
+      <div class="topbar__title">
+        <div id="session-title">Churn drivers across the Q4 account graph</div>
+        <div class="topbar__meta" id="session-meta">RAPTOR · building…</div>
+      </div>
+      <span class="trace-chip" id="trace-chip">● tracing → Phoenix</span>
+    </header>
+
+    <section class="thread" id="thread" aria-live="polite">
+      <!-- messages injected here -->
+    </section>
+
+    <div class="graphpane">
+      <div class="graphpane__bar">
+        <span>4D graph · <b id="graph-cluster">churn-risk cluster</b></span>
+        <span class="learn" id="learn-readout">Hebbian — · Q —</span>
+      </div>
+      <svg id="graph-svg" class="graphpane__svg" role="img" aria-label="Thought graph visualization"></svg>
+      <div class="graphpane__empty" id="graph-empty">Run a query to build the graph.</div>
+    </div>
+
+    <form class="composer" id="composer">
+      <input class="composer__input" id="composer-input" type="text"
+             placeholder="Ask Graphos to build a graph — e.g. 'churn drivers for our Q4 accounts'"
+             autocomplete="off" aria-label="Message Graphos">
+      <div class="composer__row">
+        <label class="chip">Preset
+          <select id="preset" class="chip__select" aria-label="Preset">
+            <option value="churn_intelligence">Churn Intelligence</option>
+            <option value="creative_brainstorm">Creative Brainstorm</option>
+            <option value="technical_planning">Technical Planning</option>
+          </select>
+        </label>
+        <label class="chip">Nodes
+          <input id="nodes" class="chip__num" type="number" min="5" max="60" value="16" aria-label="Max nodes">
+        </label>
+        <span class="chip chip--muted">RAPTOR retrieval</span>
+        <span class="grow"></span>
+        <button type="submit" class="send" id="send" aria-label="Generate graph">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#070A10" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </form>
+  </main>
+
+  <!-- RIGHT RAIL -->
+  <aside class="rail rail--right" aria-label="Plan, tasks and artifacts">
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab is-active" data-tab="plan" role="tab">Plan</button>
+      <button type="button" class="tab" data-tab="tasks" role="tab">Tasks</button>
+      <button type="button" class="tab" data-tab="artifacts" role="tab">Artifacts</button>
+    </div>
+    <div class="panel" id="panel-plan" role="tabpanel"></div>
+    <div class="panel is-hidden" id="panel-tasks" role="tabpanel"></div>
+    <div class="panel is-hidden" id="panel-artifacts" role="tabpanel"></div>
+  </aside>
+
+</div>
+<script src="/static/graphos.js"></script>
+</body>
+</html>

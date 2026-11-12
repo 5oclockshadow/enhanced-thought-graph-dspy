@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+telemetry/*.json
+GRAPHOS_EXECUTION_LOG.md
+*.log
+.venv/

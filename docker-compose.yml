@@ -1,0 +1,42 @@
+# Graphos stack: web app + Redis-backed telemetry/graph store.
+# Redis fronts the DSPy -> Arize Phoenix telemetry path (graph-redis, with
+# raw redis as the automatic fallback). Phoenix is wired via env when present.
+services:
+  graphos:
+    build: .
+    image: graphos:latest
+    ports:
+      - "8080:8080"
+    environment:
+      GRAPHOS_PORT: "8080"
+      GRAPHOS_REDIS_URL: "redis://graph-redis:6379/0"
+      GRAPHOS_REDIS_FALLBACK_URL: "redis://raw-redis:6379/0"
+      # PHOENIX_COLLECTOR_ENDPOINT: "http://phoenix:6006"
+    depends_on:
+      graph-redis:
+        condition: service_healthy
+      raw-redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  graph-redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - graph-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  raw-redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  graph-redis-data:
