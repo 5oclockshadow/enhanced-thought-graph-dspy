@@ -79,12 +79,13 @@ class DSPyBackend(Backend):
         dspy.settings.configure(lm=self._lm)
 
     def complete(self, prompt: str, system: str = "", timeout: int = 120) -> str:
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-        out = self._lm(messages=messages)
-        return out[0] if isinstance(out, list) else str(out)
+        # dspy 3.5: call the LM with a prompt string and read Response.text.
+        full = f"{system}\n\n{prompt}" if system else prompt
+        resp = self._lm(full)
+        text = getattr(resp, "text", None)
+        if text is not None:
+            return text
+        return resp[0] if isinstance(resp, list) else str(resp)
 
 
 def _env_model() -> Optional[str]:

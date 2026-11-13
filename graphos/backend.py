@@ -32,20 +32,20 @@ class _DspyBackend:
         self._lm = lm
 
     @staticmethod
-    def _messages(prompt: str, system: str):
-        msgs = []
-        if system:
-            msgs.append({"role": "system", "content": system})
-        msgs.append({"role": "user", "content": prompt})
-        return msgs
+    def _text(resp) -> str:
+        # dspy 3.5 returns an lm15 Response with `.text`; be tolerant of older forms.
+        t = getattr(resp, "text", None)
+        if t is not None:
+            return t
+        return resp[0] if isinstance(resp, list) else str(resp)
 
     def complete(self, prompt: str, system: str = "", timeout: int = 150) -> str:
-        out = self._lm(messages=self._messages(prompt, system))
-        return out[0] if isinstance(out, list) else str(out)
+        full = f"{system}\n\n{prompt}" if system else prompt
+        return self._text(self._lm(full))  # dspy 3.5: call with a prompt string
 
     async def acomplete(self, prompt: str, system: str = "", timeout: int = 150) -> str:
-        out = await self._lm.acall(messages=self._messages(prompt, system))
-        return out[0] if isinstance(out, list) else str(out)
+        full = f"{system}\n\n{prompt}" if system else prompt
+        return self._text(await self._lm.acall(full))  # native async
 
     def ping(self) -> bool:
         try:
