@@ -64,6 +64,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Graphos — Graph Intelligence Workspace", version=__version__,
               lifespan=lifespan)
 
+# Graph Foundry API (ingest / propose / portfolio).
+try:
+    from .foundry_api import router as foundry_router
+    app.include_router(foundry_router)
+except Exception as _exc:  # pragma: no cover
+    logging.getLogger("graphos.app").warning("foundry api not mounted: %s", _exc)
+
 app.add_middleware(
     CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"])

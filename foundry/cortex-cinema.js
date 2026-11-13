@@ -12,6 +12,14 @@
     this.look = new THREE.Vector3(0, 2, 0);
     this.targetLook = new THREE.Vector3(0, 2, 0);
     this.zoomed = false;
+    // Cinematography: cycle through framed shots for motion variety.
+    this.shots = [
+      { radius: 30, height: 16, spin: 0.0022 },   // wide establishing orbit
+      { radius: 22, height: 7, spin: 0.0014 },    // low dramatic sweep
+      { radius: 26, height: 26, spin: 0.0026 },   // high overhead
+      { radius: 18, height: 11, spin: 0.0018 }    // medium push
+    ];
+    this.shot = 0; this.shotT = 0; this.shotLen = 520;
   }
   CortexCinema.prototype.frameLead = function (pos) {
     if (pos) this.targetLook.set(pos.x, pos.y, pos.z);
@@ -24,6 +32,13 @@
     if (on && leadPos) this.targetLook.set(leadPos.x, leadPos.y, leadPos.z);
   };
   CortexCinema.prototype.update = function (leadPos) {
+    if (!this.zoomed) { // advance the shot cycle when not in zoom-to-best
+      if (++this.shotT > this.shotLen) {
+        this.shotT = 0; this.shot = (this.shot + 1) % this.shots.length;
+        var s = this.shots[this.shot];
+        this.targetRadius = s.radius; this.targetHeight = s.height; this.spin = s.spin;
+      }
+    }
     this.angle += this.spin;
     this.radius += (this.targetRadius - this.radius) * 0.045;
     this.height += (this.targetHeight - this.height) * 0.045;

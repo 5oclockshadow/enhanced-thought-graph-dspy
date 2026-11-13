@@ -59,6 +59,16 @@
   .legend{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:12px;background:var(--panel);
     border:1px solid var(--line);border-radius:10px;padding:7px 13px;font-size:11px;color:var(--dim);backdrop-filter:blur(10px);}
   .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle;}
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 240px rgba(0,0,0,.72);z-index:1;}
+  .ov{z-index:2;}
+  .operators{top:51vh;left:16px;width:230px;max-height:33vh;overflow:auto;}
+  .operators .ph{padding:10px 13px;border-bottom:1px solid var(--line);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--mute);}
+  .op{padding:8px 13px;border-bottom:1px solid #121a26;font-size:11.5px;color:var(--dim);display:flex;justify-content:space-between;gap:8px;}
+  .op code{color:var(--cyan);font-family:'JetBrains Mono',monospace;font-size:10.5px;}
+  .libs{display:flex;flex-wrap:wrap;gap:5px;padding:9px 13px;}
+  .lib{font-size:10px;padding:2px 7px;border-radius:999px;border:1px solid var(--line);}
+  .lib.on{color:var(--green);border-color:#1c4536;}.lib.off{color:var(--mute);}
+  .launch{background:rgba(34,211,238,.12);border:1px solid #22D3EE44;color:var(--cyan);font-size:10px;padding:2px 8px;border-radius:7px;}
 </style>
 </head>
 <body>
@@ -72,12 +82,14 @@
     <select class="inp" id="task"></select>
     <label class="tog"><input type="checkbox" id="auto">Auto-start</label>
     <label class="tog"><input type="checkbox" id="restart">Restart&lt;target</label>
+    <button class="ghost" id="propose">＋ Propose task</button>
     <button class="ghost" id="zoom">Zoom-to-best</button>
     <button class="btn" id="start">Build ▸</button>
   </div>
 </div>
 
-<div class="ov panel skills"><div class="ph">Shipped engine specs</div><div id="skills"></div></div>
+<div class="ov panel skills"><div class="ph">Portfolio · launchable engines</div><div id="skills"></div></div>
+<div class="ov panel operators"><div class="ph">Operator library · ingested</div><div class="libs" id="libs"></div><div id="ops"></div></div>
 
 <div class="ov panel commentary"><div class="ph">ReAct · Thought → Action → Observation</div><div class="stream" id="stream"></div></div>
 
@@ -100,28 +112,56 @@
   var canvas = document.getElementById("c");
   var renderer = new THREE.WebGLRenderer({canvas:canvas, antialias:true});
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio||1));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;   // photoreal tonemap
+  renderer.toneMappingExposure = 1.15;
+  renderer.outputEncoding = THREE.sRGBEncoding;
   var scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x06080E, 0.012);
-  var camera = new THREE.PerspectiveCamera(55, 1, 0.1, 400);
+  scene.fog = new THREE.FogExp2(0x070b14, 0.010);
+  var camera = new THREE.PerspectiveCamera(52, 1, 0.1, 600);
   camera.position.set(0,16,30);
   var cinema = new window.CortexCinema(camera);
   function resize(){ var w=window.innerWidth,h=window.innerHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); }
   window.addEventListener("resize", resize); resize();
 
-  scene.add(new THREE.AmbientLight(0x4a5a7a, 0.7));
-  var p1=new THREE.PointLight(0x22D3EE,1.1,120); p1.position.set(18,24,18); scene.add(p1);
-  var p2=new THREE.PointLight(0xA855F7,1.0,120); p2.position.set(-20,18,-10); scene.add(p2);
-  // grid floor
-  var grid=new THREE.GridHelper(60,30,0x1a2740,0x121a28); grid.position.y=0; scene.add(grid);
-  // starfield
-  (function(){ var g=new THREE.BufferGeometry(), N=600, a=new Float32Array(N*3);
-    for(var i=0;i<N;i++){ a[i*3]=(Math.random()-0.5)*260; a[i*3+1]=Math.random()*120-10; a[i*3+2]=(Math.random()-0.5)*260; }
+  // Image-based lighting: a gradient environment for real reflections.
+  (function(){
+    var cv=document.createElement("canvas"); cv.width=32; cv.height=128; var ct=cv.getContext("2d");
+    var g=ct.createLinearGradient(0,0,0,128); g.addColorStop(0,"#1a3156"); g.addColorStop(0.45,"#0e1f3a"); g.addColorStop(1,"#04060c");
+    ct.fillStyle=g; ct.fillRect(0,0,32,128);
+    ct.fillStyle="rgba(120,200,255,0.5)"; ct.beginPath(); ct.arc(16,26,7,0,7); ct.fill(); // soft keylight in the env
+    var tex=new THREE.CanvasTexture(cv); tex.mapping=THREE.EquirectangularReflectionMapping;
+    var pmrem=new THREE.PMREMGenerator(renderer); pmrem.compileEquirectangularShader();
+    scene.environment = pmrem.fromEquirectangular(tex).texture;
+  })();
+
+  // Gradient skydome.
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(300,32,16), new THREE.ShaderMaterial({
+    side:THREE.BackSide, depthWrite:false,
+    uniforms:{top:{value:new THREE.Color(0x14294d)},bot:{value:new THREE.Color(0x04060c)}},
+    vertexShader:"varying float h;void main(){h=normalize(position).y;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}",
+    fragmentShader:"varying float h;uniform vec3 top;uniform vec3 bot;void main(){gl_FragColor=vec4(mix(bot,top,clamp(h*0.6+0.4,0.0,1.0)),1.0);}"
+  })));
+
+  // Glossy reflective floor + faint grid.
+  var floor=new THREE.Mesh(new THREE.PlaneGeometry(260,260), new THREE.MeshStandardMaterial({color:0x060b15,metalness:0.92,roughness:0.34,envMapIntensity:1.1}));
+  floor.rotation.x=-Math.PI/2; floor.position.y=-0.03; scene.add(floor);
+  var grid=new THREE.GridHelper(70,35,0x203354,0x121c2e); grid.position.y=0.0; grid.material.opacity=0.5; grid.material.transparent=true; scene.add(grid);
+
+  // Cinematic lighting: white key + coloured rims.
+  scene.add(new THREE.AmbientLight(0x3a4a6a, 0.5));
+  var key=new THREE.DirectionalLight(0xffffff,1.25); key.position.set(14,26,12); scene.add(key);
+  var p1=new THREE.PointLight(0x22D3EE,1.3,160); p1.position.set(20,16,18); scene.add(p1);
+  var p2=new THREE.PointLight(0xA855F7,1.2,160); p2.position.set(-22,14,-12); scene.add(p2);
+  var p3=new THREE.PointLight(0xFBBF24,0.9,120); p3.position.set(0,24,-6); scene.add(p3);
+  // drifting dust
+  var dust;(function(){ var g=new THREE.BufferGeometry(), N=500, a=new Float32Array(N*3);
+    for(var i=0;i<N;i++){ a[i*3]=(Math.random()-0.5)*160; a[i*3+1]=Math.random()*70; a[i*3+2]=(Math.random()-0.5)*160; }
     g.setAttribute("position", new THREE.BufferAttribute(a,3));
-    scene.add(new THREE.Points(g, new THREE.PointsMaterial({color:0x2a3a55,size:0.5}))); })();
+    dust=new THREE.Points(g, new THREE.PointsMaterial({color:0x4a6a95,size:0.35,transparent:true,opacity:0.6})); scene.add(dust); })();
 
   // sphere pool
-  var POOL=70, sphGeo=new THREE.SphereGeometry(1,18,18), spheres=[];
-  for(var i=0;i<POOL;i++){ var m=new THREE.Mesh(sphGeo, new THREE.MeshStandardMaterial({color:0x3B2A6B,emissive:0x101830,roughness:.4,metalness:.3})); m.visible=false; scene.add(m); spheres.push(m); }
+  var POOL=70, sphGeo=new THREE.SphereGeometry(1,24,24), spheres=[];
+  for(var i=0;i<POOL;i++){ var m=new THREE.Mesh(sphGeo, new THREE.MeshStandardMaterial({color:0x3B2A6B,emissive:0x101830,roughness:.3,metalness:.28,envMapIntensity:0.8,clearcoat:1})); m.visible=false; scene.add(m); spheres.push(m); }
   // lead glow sprite
   function glowTex(){ var cv=document.createElement("canvas"); cv.width=cv.height=128; var ct=cv.getContext("2d");
     var g=ct.createRadialGradient(64,64,4,64,64,64); g.addColorStop(0,"rgba(251,191,36,.9)"); g.addColorStop(1,"rgba(251,191,36,0)");
@@ -162,7 +202,7 @@
 
   // ---- round controller ----
   var S={taskName:null, task:null, env:null, run:null, round:0, bestEver:0, frames:0,
-    leadPos:new THREE.Vector3(0,3,0), lastLead:null, running:false};
+    leadPos:new THREE.Vector3(0,3,0), lastLead:null, running:false, portfolio:[], warmSeeds:null};
   var GEN_EVERY=10; // frames between generations
 
   function positions(snap){
@@ -176,7 +216,8 @@
       tx += Math.cos(i*2.399+snap.gen*0.13)*jit; tz += Math.sin(i*2.399+snap.gen*0.13)*jit;
       m.position.lerp(new THREE.Vector3(tx,ty,tz), 0.4);
       var r=0.5+ind.fit*0.9; m.scale.set(r,r,r);
-      var col=ind.best?0xFBBF24:ramp(ind.fit); m.material.color.setHex(col); m.material.emissive.setHex(ind.best?0x4a3200:0x0c1428);
+      var col=ind.best?0xFBBF24:ramp(ind.fit); m.material.color.setHex(col); m.material.emissive.setHex(ind.best?0x8a5a00:ramp(ind.fit));
+      m.material.emissiveIntensity = ind.best?1.6:(0.12+ind.fit*0.5);
       if(ind.best){ S.leadPos.copy(m.position); lead.position.copy(m.position); }
     }
   }
@@ -188,7 +229,8 @@
     S.task=FB.TASKS[S.taskName];
     var seed=(S.round+1)*97+ (seedBump?Date.now()%1000:0);
     S.env=FB.gym.make(S.task, seed);
-    S.run=FB.createEvolve(S.task, S.env.cases, {seed:seed, popSize:60, gens:28});
+    S.run=FB.createEvolve(S.task, S.env.cases, {seed:seed, popSize:60, gens:28, seeds:S.warmSeeds});
+    S.warmSeeds=null;
     S.round+=1; S.frames=0; S.running=true;
     var sig=FB.dspy.signature(S.task); $("sig").textContent=sig.inputs+" → "+sig.outputs+" · "+sig.metric;
     $("stream").innerHTML=""; $("pipbody").innerHTML="";
@@ -198,17 +240,39 @@
     $("src").textContent=snap.source;
   }
 
+  // ---- Portfolio (item 3): shipped engines are launchable + persisted ----
+  function loadLocal(){ try{ return JSON.parse(localStorage.getItem("foundry_portfolio")||"[]"); }catch(e){ return []; } }
+  function saveLocal(a){ try{ localStorage.setItem("foundry_portfolio", JSON.stringify(a.slice(-100))); }catch(e){} }
+
+  function renderPortfolio(){
+    var items = S.portfolio.slice().sort(function(a,b){return (b.fitness||0)-(a.fitness||0);}).slice(0,12);
+    $("skills").innerHTML = items.length ? items.map(function(e,i){
+      var spec=JSON.stringify(e), url=URL.createObjectURL(new Blob([JSON.stringify(e,null,2)],{type:"application/json"}));
+      var hasTask = !!FB.TASKS[e.task];
+      return '<div class="skill"><span>'+(e.task||"engine").split("_")[0]+' · '+(e.fitness||0).toFixed(2)+'</span>'+
+        '<span>'+(hasTask?'<button class="launch" data-i="'+i+'">launch</button> ':'')+'<a href="'+url+'" download="engine_'+(e.task||"x")+'.json">spec</a></span></div>';
+    }).join("") : '<div style="padding:11px 13px;color:#5E6B7E;font-size:12px">No engines yet — Build to ship one.</div>';
+    Array.prototype.forEach.call(document.querySelectorAll(".launch"), function(b){
+      b.addEventListener("click", function(){ launch(items[+b.dataset.i]); });
+    });
+  }
   function ship(snap){
-    var best={genome:S.run.bestEver.genome, fitness:S.run.bestEver.fitness};
+    var best={genome:S.run.bestEver.genome.map(function(x){return Math.round(x*1000)/1000;}), fitness:S.run.bestEver.fitness};
     S.bestEver=Math.max(S.bestEver, best.fitness);
     var pgc=FB.dspy.compile(S.task, best), spec=FB.engineSpec(S.task, best, pgc, FB.dspy.signature(S.task));
     reEntry({stage:"Compile", tool:"dspy.compile", observation:"program-graph · fitness "+best.fitness.toFixed(3)});
-    reEntry({stage:"Ship", tool:"engineSpec", observation:"shipped engine spec → skill"});
-    var blob=new Blob([JSON.stringify(spec,null,2)],{type:"application/json"});
-    var url=URL.createObjectURL(blob);
-    var d=document.createElement("div"); d.className="skill";
-    d.innerHTML='<span>R'+S.round+' · '+S.task.name.split("_")[0]+' · '+best.fitness.toFixed(2)+'</span><a href="'+url+'" download="engine_'+S.task.name+'_r'+S.round+'.json">spec</a>';
-    $("skills").insertBefore(d, $("skills").firstChild);
+    reEntry({stage:"Ship", tool:"engineSpec", observation:"shipped engine spec → portfolio"});
+    S.portfolio.push(spec); saveLocal(S.portfolio); renderPortfolio();
+    // persist server-side when online
+    fetch("/api/foundry/portfolio",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({engine:spec.engine,task:spec.task,fitness:spec.fitness,genome:spec.genome,source:spec.source,signature:spec.signature,program_graph:spec.program_graph})}).catch(function(){});
+  }
+  function launch(engine){
+    if(!FB.TASKS[engine.task]){ toast("decoder for "+engine.task+" not loaded"); return; }
+    $("task").value=engine.task; $("goal").value="launch "+engine.task;
+    S.warmSeeds=[engine.genome]; S.round = S.round; // keep counter
+    reEntry({stage:"Launch", tool:"portfolio.launch", observation:"warm-start from shipped genome · fit "+(engine.fitness||0).toFixed(3)});
+    startRound(true);
   }
 
   function tick(){
@@ -228,6 +292,7 @@
     }
     lead.material.rotation += 0.01;
     pg.rotation.y = Math.sin(Date.now()*0.0002)*0.25;
+    if(dust) dust.rotation.y += 0.0004;
     cinema.update(S.running? S.leadPos : null);
     renderer.render(scene, camera);
   }
@@ -243,9 +308,53 @@
     window.addEventListener("mousemove",function(e){ if(drag){ pip.style.left=(e.clientX-dx)+"px"; pip.style.top=(e.clientY-dy)+"px"; pip.style.transform="none"; }});
     window.addEventListener("mouseup",function(){drag=false;}); })();
 
+  // ---- item 1: operator-library ingestion ----
+  function loadOperators(){
+    fetch("/api/foundry/ingest").then(function(r){return r.json();}).then(function(d){
+      $("libs").innerHTML=Object.keys(d.named_libraries||{}).map(function(k){return '<span class="lib '+(d.named_libraries[k]?"on":"off")+'">'+k+(d.named_libraries[k]?" ✓":"")+'</span>';}).join("");
+      $("ops").innerHTML=(d.operators||[]).map(function(o){var s=o.symbol.split(".").slice(-1)[0];return '<div class="op"><code>'+s+'</code><span>'+(o.kind||"")+' · '+(o.blast_radius||0)+'bl</span></div>';}).join("")||'<div class="op">no operators</div>';
+      reEntry({stage:"Ingest", tool:"graph_intel.ingest", observation:d.files+" files · "+d.graph.nodes+" symbols ingested"});
+    }).catch(function(){ $("ops").innerHTML='<div class="op">offline — ingest needs the server</div>'; });
+  }
+  // ---- item 2: self-extending task proposal ----
+  function registerTask(spec){
+    try{
+      var task={ name:String(spec.name).replace(/[^a-z0-9_]/gi,"_"), label:spec.label||spec.name, keywords:spec.keywords||[],
+        genomeSize:spec.genomeSize|0, box:spec.box, decode:(0,eval)("("+spec.decode+")"), cases:(0,eval)("("+spec.cases+")"), score:(0,eval)("("+spec.score+")") };
+      FB.TASKS[task.name]=task;
+      if(!document.querySelector('#task option[value="'+task.name+'"]')){ var o=document.createElement("option"); o.value=task.name; o.textContent=task.label+" · proposed"; sel.appendChild(o); }
+      return task.name;
+    }catch(e){ toast("register failed: "+e.message); return null; }
+  }
+  function proposeTask(){
+    var goal=$("goal").value.trim()||"a new optimization task";
+    $("propose").textContent="Proposing…"; $("propose").disabled=true;
+    reEntry({stage:"Self-extend", tool:"mcp.propose", thought:"Ask the model to write a new task decoder for: "+goal, observation:"validating with real search…"});
+    fetch("/api/foundry/propose",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({goal:goal})})
+      .then(function(r){return r.json().then(function(b){ if(!r.ok) throw new Error((b.error&&b.error.message)||b.detail||("HTTP "+r.status)); return b;});})
+      .then(function(res){
+        if(res.accepted){ var name=registerTask(res.task); if(name){ $("task").value=name;
+          reEntry({stage:"Self-extend", tool:"validate_task", observation:"accepted "+name+" · fit "+res.validation.finalBest});
+          toast("New task ready: "+name+" (validated "+res.validation.finalBest+")"); startRound(false); } }
+        else { reEntry({stage:"Self-extend", tool:"validate_task", observation:"rejected · "+(res.reason||"")}); toast("Rejected: "+(res.reason||"validation failed")); }
+      }).catch(function(e){ toast("Propose failed: "+e.message); })
+      .finally(function(){ $("propose").textContent="＋ Propose task"; $("propose").disabled=false; });
+  }
+  $("propose").addEventListener("click", proposeTask);
+  // ---- item 3: load portfolio (server + local) ----
+  function loadPortfolioServer(){
+    S.portfolio=loadLocal();
+    fetch("/api/foundry/portfolio").then(function(r){return r.json();}).then(function(d){
+      var seen={}; S.portfolio.forEach(function(e){seen[e.task+"|"+e.fitness]=1;});
+      (d.engines||[]).forEach(function(e){ if(!seen[e.task+"|"+e.fitness]) S.portfolio.push(e); });
+      renderPortfolio();
+    }).catch(function(){ renderPortfolio(); });
+  }
+
   // boot
   metrics({task:"—",round:0,gen:0,best:0,mean:0,evals:0,bestEver:0});
   buildPG([{label:"input"},{label:"decode(genome)"},{label:"execute(src)"},{label:"output"}]);
+  loadPortfolioServer(); loadOperators();
   tick();
   // auto-run first round shortly so the field is alive on load
   setTimeout(function(){ startRound(false); }, 600);

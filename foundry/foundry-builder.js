@@ -192,6 +192,13 @@
     const fitness = (g) => { try { return task.score(task.decode(g).fn, cases); } catch (e) { return 0; } };
 
     let pop = Array.from({ length: popSize }, () => Array.from({ length: G }, randGene));
+    // Warm-start: inject saved genomes (portfolio launch) as initial elites.
+    if (opts.seeds && opts.seeds.length) {
+      for (let i = 0; i < Math.min(opts.seeds.length, popSize); i++) {
+        const s = opts.seeds[i];
+        if (Array.isArray(s) && s.length === G) pop[i] = s.map(clip);
+      }
+    }
     let fit = pop.map(fitness);
     let evals = popSize, gen = 0;
     let bestEver = { genome: pop[0].slice(), fitness: fit[0] };
