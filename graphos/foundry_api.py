@@ -166,3 +166,37 @@ def propose(body: ProposeIn) -> Dict[str, Any]:
         return {"accepted": False, "reason": result.get("error", "validation failed"),
                 "backend": backend.name, "spec": spec}
     return {"accepted": True, "backend": backend.name, "validation": result, "task": spec}
+
+
+# ---------------- self-improvement: beautify own UI ------------------------
+_LAST_IMPROVE: Dict[str, Any] = {"status": "idle"}
+
+
+@router.post("/self-improve")
+def self_improve_trigger() -> Dict[str, Any]:
+    """Kick off the self-beautify loop in the background (re-ingest → RAPTOR →
+    Hebbian → model rewrites own CSS, gated). Poll GET for the result."""
+    global _LAST_IMPROVE
+    if _LAST_IMPROVE.get("status") == "running":
+        return {"status": "running"}
+    _LAST_IMPROVE = {"status": "running"}
+
+    def _work():
+        global _LAST_IMPROVE
+        try:
+            from . import self_improve
+            rep = self_improve.run()
+            _LAST_IMPROVE = {"status": "done", "backend": rep.backend, "target": rep.target,
+                             "steps": rep.steps, "beautify": rep.beautify,
+                             "hebbian_top": [h["module"] for h in rep.hebbian[:5]],
+                             "elapsed_s": rep.elapsed_s}
+        except Exception as exc:  # pragma: no cover
+            _LAST_IMPROVE = {"status": "error", "error": str(exc)}
+
+    threading.Thread(target=_work, daemon=True).start()
+    return {"status": "running", "note": "self-improve started; poll GET /api/foundry/self-improve"}
+
+
+@router.get("/self-improve")
+def self_improve_status() -> Dict[str, Any]:
+    return _LAST_IMPROVE
