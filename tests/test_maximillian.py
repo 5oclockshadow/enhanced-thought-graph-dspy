@@ -1,10 +1,14 @@
 """Tests for the Maximillian loop: graph intel, auditor, telemetry, reporter,
 and a full deterministic round on a synthetic target."""
 
+import os
 import textwrap
 from pathlib import Path
 
 import pytest
+
+# Keep tests deterministic and offline — never ping a live model.
+os.environ["MAXIMILLIAN_NO_AUTOPILOT"] = "1"
 
 from maximillian.auditor import Auditor, check_invariants, discover_python_files
 from maximillian.graph_intel import GraphIntel

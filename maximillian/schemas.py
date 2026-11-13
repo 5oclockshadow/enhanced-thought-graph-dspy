@@ -180,3 +180,6 @@ class RoundResult(BaseModel):
     snapshot_tag: Optional[str] = None
     report_path: Optional[str] = None
     llm_available: bool = False
+    backend: str = "none"
+    refactor_proposals: List[str] = Field(default_factory=list)
+    strategic_plan_text: Optional[str] = None

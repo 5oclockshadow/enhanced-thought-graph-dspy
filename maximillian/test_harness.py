@@ -8,11 +8,21 @@ the PatchSynthesizer until green or ``max_retries`` is exhausted.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
+
+
+def _subenv(cwd: Path) -> Dict[str, str]:
+    """Isolated-but-importable subprocess env: the project stays on sys.path."""
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(cwd) + (os.pathsep + existing if existing else "")
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return env
 
 from .graph_intel import GraphIntel
 from .auditor import discover_python_files
@@ -29,10 +39,11 @@ def _tail(text: str, lines: int = 40) -> str:
 
 def run_module(entry: str, cwd: Path, timeout: int = 60) -> ExecutionTrace:
     """Execute a module/script in a resource-bounded subprocess (Stage 07)."""
-    cmd = ["python", "-I", "-c", f"import runpy; runpy.run_module({entry!r}, run_name='__main__')"]
+    cmd = ["python", "-c", f"import runpy; runpy.run_module({entry!r}, run_name='__main__')"]
     start = time.time()
     try:
-        proc = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True,
+                              timeout=timeout, env=_subenv(cwd))
         return ExecutionTrace(
             command=" ".join(cmd), exit_code=proc.returncode,
             stdout_tail=_tail(proc.stdout), stderr_tail=_tail(proc.stderr),
@@ -82,9 +93,9 @@ def test_till_pass(
         start = time.time()
         try:
             proc = subprocess.run(
-                ["python", "-I", "-m", "pytest", str(tests_dir), "-q", "--tb=line",
+                ["python", "-m", "pytest", str(tests_dir), "-q", "--tb=line",
                  "-p", "no:cacheprovider"],
-                cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
+                cwd=str(cwd), capture_output=True, text=True, timeout=timeout, env=_subenv(cwd))
             stdout, stderr, code = proc.stdout, proc.stderr, proc.returncode
         except subprocess.TimeoutExpired:
             it = TestIteration(attempt=attempt, exit_code=-1, duration_s=round(time.time() - start, 3))

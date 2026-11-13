@@ -89,8 +89,19 @@ def render_report(result: RoundResult, reports_dir: Path) -> Path:
         f"<td>{'✅' if it.exit_code==0 else '❌'}</td></tr>"
         for it in (tests.iterations if tests else []))
 
-    llm_badge = ('<span class="tag ok">LLM live</span>' if result.llm_available
-                 else '<span class="tag warn">deterministic mode — no model</span>')
+    llm_badge = (f'<span class="tag ok">autopilot ON · {_esc(result.backend)}</span>'
+                 if result.llm_available
+                 else '<span class="tag warn">deterministic mode — no model in env</span>')
+
+    proposals_html = ""
+    if result.refactor_proposals:
+        items = "".join(f"<li>{_esc(p)}</li>" for p in result.refactor_proposals)
+        proposals_html = (f'<h2>Autopilot — model refactor proposals</h2>'
+                          f'<div class="card"><ol style="margin:0;padding-left:20px;line-height:1.7;font-size:13px">{items}</ol></div>')
+    plan_html = ""
+    if result.strategic_plan_text:
+        plan_html = (f'<h2>Autopilot — strategic plan (next round)</h2>'
+                     f'<div class="card" style="line-height:1.6;font-size:13px">{_esc(result.strategic_plan_text)}</div>')
 
     doc = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -124,6 +135,9 @@ def render_report(result: RoundResult, reports_dir: Path) -> Path:
   <div><div class="sub">Diff minimality</div>{_bar(reward.diff_minimality if reward else 0,1,'#A855F7')}</div>
   <div><div class="sub">Complexity reduction</div>{_bar(reward.complexity_reduction if reward else 0,1,'#34D399')}</div>
 </div>
+
+{proposals_html}
+{plan_html}
 
 <h2>Stage timeline</h2>
 <div class="card"><table><thead><tr><th>Stage</th><th>Duration</th><th>Status</th></tr></thead>

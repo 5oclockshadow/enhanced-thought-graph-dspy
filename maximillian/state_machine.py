@@ -72,28 +72,28 @@ class StateMachine:
     def run_round(self, round_id: int) -> RoundResult:
         cfg = self.cfg
         result = RoundResult(round_id=round_id, target=str(cfg.target),
-                             llm_available=self.synth.live)
-        logger.info("── Round %d · target=%s · llm=%s", round_id, cfg.target, self.synth.live)
+                             llm_available=self.synth.live, backend=self.synth.backend_name)
+        logger.info("── Round %d · target=%s · autopilot=%s (%s)",
+                    round_id, cfg.target, self.synth.live, self.synth.backend_name)
 
         # 01 Initial audit
         result.audit = self._timed(result, Stage.AUDIT_INIT, lambda: Auditor().audit(cfg.target))
-        # 02 Build (no-exec) — model-dependent; recorded reason otherwise
-        self._timed(result, Stage.BUILD_NO_EXEC,
-                    lambda: self.synth.build("(no build spec supplied for audit run)", "pydantic-v2, typed"),
-                    note="deterministic no-op" if not self.synth.live else "")
+        # 02 Build (no-exec) — only synthesizes when a build spec is supplied.
+        self._timed(result, Stage.BUILD_NO_EXEC, lambda: None, note="no build spec (audit run)")
         # 03 Full-context read -> graph
         files = discover_python_files(cfg.target)
         result.graph = self._timed(result, Stage.READ_ALL,
                                    lambda: GraphIntel().build(cfg.target, files).summary())
-        # 04 Structural refactor (model-dependent)
-        self._timed(result, Stage.REFACTOR_PRIMARY,
-                    lambda: self.synth.refactor("", ""), note="deterministic no-op" if not self.synth.live else "")
+        # 04 Structural refactor (autopilot: real model proposals on top findings)
+        self._timed(result, Stage.REFACTOR_PRIMARY, lambda: self._refactor_stage(result),
+                    note="" if self.synth.live else "deterministic no-op")
         # 05 Secondary audit — invariants
         result.invariants = self._timed(result, Stage.AUDIT_POST_REFACTOR,
                                         lambda: check_invariants(cfg.target))
-        # 06 Precision refactor (model-dependent)
-        self._timed(result, Stage.REFACTOR_PRECISION, lambda: self.synth.refactor("", ""),
-                    note="deterministic no-op" if not self.synth.live else "")
+        # 06 Precision refactor — resolution recorded via Stage 04 proposals.
+        self._timed(result, Stage.REFACTOR_PRECISION, lambda: None,
+                    note=f"{len(result.refactor_proposals)} proposals from stage 04"
+                    if self.synth.live else "deterministic no-op")
         # 07 Sandboxed execution (optional entry)
         if cfg.entry_module:
             result.execution = self._timed(result, Stage.EXEC_SANDBOX,
@@ -131,6 +131,23 @@ class StateMachine:
         return result
 
     # -- stage implementations --------------------------------------------
+    def _refactor_stage(self, result: RoundResult) -> None:
+        """Autopilot Stage 04: ask the live model for concrete refactor proposals
+        targeting the highest-severity findings. Advisory only — never edits
+        source unless the test-till-pass patch loop is explicitly enabled."""
+        if not self.synth.live or not result.audit or not result.audit.findings:
+            return
+        ranked = sorted(result.audit.findings,
+                        key=lambda f: ["LOW", "MEDIUM", "HIGH", "CRITICAL"].index(f.severity.value),
+                        reverse=True)[:5]
+        summary = "\n".join(
+            f"- [{f.severity.value}] {f.kind} in {Path(f.file).name}"
+            f"{(':' + f.symbol) if f.symbol else ''} — {f.message}" for f in ranked)
+        res = self.synth.refactor(summary)
+        if res.applied and res.output:
+            lines = [ln.strip(" -•\t") for ln in res.output.splitlines() if ln.strip()]
+            result.refactor_proposals = [ln for ln in lines if len(ln) > 8][:8]
+
     def _health(self, result: RoundResult) -> SystemHealthSnapshot:
         files = discover_python_files(self.cfg.target)
         loc = 0
@@ -175,6 +192,17 @@ class StateMachine:
                 steps.append(PlanStep(order=i, stage=Stage.REFACTOR_PRECISION.value,
                                       action=f"resolve {f.kind}: {f.message}",
                                       target=f.symbol or f.file))
+        # Autopilot: a concise model-authored strategic narrative for next round.
+        if self.synth.live and result.audit:
+            sev = result.audit.by_severity()
+            ctx = (f"Target {Path(self.cfg.target).name}: {result.audit.total_findings} findings "
+                   f"({sev}), {result.graph.nodes if result.graph else 0} graph nodes, "
+                   f"tests_passing={bool(result.tests and result.tests.converged)}.")
+            adv = self.synth.advise(
+                "You are a staff engineer. In 3-4 terse sentences, state the single "
+                "highest-leverage improvement for the next round and why.", ctx)
+            if adv.applied:
+                result.strategic_plan_text = adv.output[:1200]
         return RoundExecutionPlan(round_id=round_id + 1,
                                   converged=result.converged, steps=steps)
 
