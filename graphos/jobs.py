@@ -20,7 +20,7 @@ from concurrent.futures import TimeoutError as FuturesTimeout
 from typing import Any, Dict
 
 from .config import settings
-from .service import GraphRequest, generate_graph
+from .service import GraphRequest, generate_graph, generate_graph_async
 from .store import Store
 
 logger = logging.getLogger("graphos.jobs")
@@ -30,31 +30,46 @@ class QueueFull(RuntimeError):
     """Raised when the in-flight job bound is reached."""
 
 
-def run_generation(store: Store, session_id: str, run_id: str, request: GraphRequest) -> Dict[str, Any]:
-    """The single run state machine: start → generate → persist → finish.
+def _persist(store: Store, session_id: str, run_id: str, request: GraphRequest,
+             payload: Dict[str, Any], start: float) -> Dict[str, Any]:
+    latency_ms = int((time.time() - start) * 1000)
+    gid = store.save_graph(session_id, run_id, payload)
+    tokens_est = (len(request.input_text)
+                  + sum(len(t.get("content", "")) for t in payload.get("thoughts", []))) // 4
+    store.create_artifact(
+        session_id, gid, "graph", f"Graph · {request.input_text[:48]}",
+        {"nodes": payload["metrics"]["total_nodes"],
+         "quality": payload["metrics"]["quality_score"], "engine": payload.get("engine")})
+    store.finish_run(run_id, status="succeeded", engine=payload.get("engine"),
+                     graph_id=gid, latency_ms=latency_ms, tokens_est=tokens_est)
+    logger.info("run %s succeeded in %dms (engine=%s)", run_id, latency_ms, payload.get("engine"))
+    payload["graph_id"], payload["run_id"], payload["session_id"] = gid, run_id, session_id
+    return payload
 
-    Used by both the async worker and the synchronous endpoint so the lifecycle
-    is owned in exactly one place (Architect finding 3).
-    """
+
+def run_generation(store: Store, session_id: str, run_id: str, request: GraphRequest) -> Dict[str, Any]:
+    """The single run state machine (sync): start → generate → persist → finish.
+    One owner for the lifecycle, shared by the worker and the sync endpoint."""
     store.start_run(run_id)
     start = time.time()
     try:
-        payload = generate_graph(request)
-        latency_ms = int((time.time() - start) * 1000)
-        gid = store.save_graph(session_id, run_id, payload)
-        tokens_est = (len(request.input_text)
-                      + sum(len(t.get("content", "")) for t in payload.get("thoughts", []))) // 4
-        store.create_artifact(
-            session_id, gid, "graph", f"Graph · {request.input_text[:48]}",
-            {"nodes": payload["metrics"]["total_nodes"],
-             "quality": payload["metrics"]["quality_score"], "engine": payload.get("engine")})
-        store.finish_run(run_id, status="succeeded", engine=payload.get("engine"),
-                         graph_id=gid, latency_ms=latency_ms, tokens_est=tokens_est)
-        logger.info("run %s succeeded in %dms (engine=%s)", run_id, latency_ms, payload.get("engine"))
-        payload["graph_id"] = gid
-        payload["run_id"] = run_id
-        payload["session_id"] = session_id
-        return payload
+        return _persist(store, session_id, run_id, request, generate_graph(request), start)
+    except Exception as exc:
+        store.finish_run(run_id, status="failed", error=str(exc)[:500],
+                         latency_ms=int((time.time() - start) * 1000))
+        logger.warning("run %s failed: %s", run_id, exc)
+        raise
+
+
+async def run_generation_async(store: Store, session_id: str, run_id: str,
+                               request: GraphRequest) -> Dict[str, Any]:
+    """Async lifecycle: the model call is awaited (non-blocking); the fast store
+    writes happen on the loop. Used by the async /api/graph handler."""
+    store.start_run(run_id)
+    start = time.time()
+    try:
+        payload = await generate_graph_async(request)
+        return _persist(store, session_id, run_id, request, payload, start)
     except Exception as exc:
         store.finish_run(run_id, status="failed", error=str(exc)[:500],
                          latency_ms=int((time.time() - start) * 1000))

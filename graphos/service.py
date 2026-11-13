@@ -191,68 +191,73 @@ def _shape(graph: ThoughtGraph) -> Dict[str, Any]:
     }
 
 
-def generate_graph(request: GraphRequest) -> Dict[str, Any]:
-    """Run a full, traced generation task and return the UI payload."""
-    parameters = request.to_parameters()
-    span = TelemetrySpan(task=request.input_text, parameters=parameters.model_dump(mode="json"))
-    span.pre(
-        plan={
-            "mode": request.generation_mode.value,
-            "clustering": request.clustering_method.value,
-            "target_nodes": request.max_nodes,
-            "reinforcement": {"hebbian_rate": request.hebbian_rate, "q_discount": request.q_discount},
-        }
-    )
+# -- shared pipeline pieces (used by the sync and async entrypoints) -------
+def _build_deterministic(request, parameters):
+    expanded = ExpandedInput(
+        original_text=request.input_text, parameters=parameters,
+        focus_areas=request.focus_areas, constraints=request.constraints,
+        context={"surface": "graphos"})
+    result = _reactor(expanded, use_fake_data=True)
+    if not result.graph:
+        raise GraphServiceError("engine returned no graph")
+    graph = result.graph
+    scoring = realize_scores(graph, request.input_text)  # data-derived, not random
+    return graph, scoring, list(result.insights or []), list(result.recommendations or []), result.summary
 
-    start = time.time()
-    success = False
-    error: Optional[str] = None
+
+def _assemble(graph, request, engine, scoring, insights, recommendations, summary):
+    learning = _reinforce(graph, request.hebbian_rate, request.q_discount)
+    payload = _shape(graph)
+    payload.update({"learning": learning, "scoring": scoring, "engine": engine,
+                    "insights": insights, "recommendations": recommendations, "summary": summary})
+    return payload, learning
+
+
+def _open_span(request, parameters) -> TelemetrySpan:
+    span = TelemetrySpan(task=request.input_text, parameters=parameters.model_dump(mode="json"))
+    span.pre(plan={
+        "mode": request.generation_mode.value, "clustering": request.clustering_method.value,
+        "target_nodes": request.max_nodes,
+        "reinforcement": {"hebbian_rate": request.hebbian_rate, "q_discount": request.q_discount}})
+    return span
+
+
+def _close_span(span, start, success, error, payload, learning) -> None:
+    elapsed = round(time.time() - start, 4)
+    span.post(success=success, error=error, metrics={
+        "elapsed_seconds": elapsed,
+        "nodes": payload.get("metrics", {}).get("total_nodes", 0),
+        "edges": payload.get("metrics", {}).get("total_edges", 0),
+        "hebbian_plasticity": learning.get("hebbian_plasticity", 0.0),
+        "q_reward": learning.get("q_reward", 0.0)})
+    if success:
+        payload["telemetry"] = {"span_id": span.span_id, "paths": span.paths, "elapsed_seconds": elapsed}
+
+
+def generate_graph(request: GraphRequest) -> Dict[str, Any]:
+    """Run a full, traced generation task and return the UI payload (sync)."""
+    parameters = request.to_parameters()
+    span = _open_span(request, parameters)
+    start, success, error = time.time(), False, None
     payload: Dict[str, Any] = {}
     learning: Dict[str, Any] = {}
     try:
-        expanded = ExpandedInput(
-            original_text=request.input_text,
-            parameters=parameters,
-            focus_areas=request.focus_areas,
-            constraints=request.constraints,
-            context={"surface": "graphos"},
-        )
-        # Autopilot: use the live model when the environment provides one,
-        # otherwise the deterministic engine with data-derived scoring.
-        graph = None
-        engine = "deterministic"
+        graph, engine = None, "deterministic"
         try:
             from . import live_engine
             if live_engine.is_live():
-                graph = live_engine.generate(request.input_text, parameters,
-                                             request.generation_mode.value)
+                graph = live_engine.generate(request.input_text, parameters, request.generation_mode.value)
                 if graph is not None:
                     engine = f"live:{live_engine.backend_name()}"
         except Exception as exc:  # pragma: no cover - never fatal
             logger.warning("live engine unavailable, falling back: %s", exc)
-
         if graph is None:
-            result = _reactor(expanded, use_fake_data=True)
-            if not result.graph:
-                raise GraphServiceError("engine returned no graph")
-            graph = result.graph
-            # Deterministic values computed from input text + graph structure.
-            scoring = realize_scores(graph, request.input_text)
-            insights, recommendations, summary = (
-                list(result.insights or []), list(result.recommendations or []), result.summary)
+            graph, scoring, insights, recommendations, summary = _build_deterministic(request, parameters)
         else:
             scoring = {"mean_confidence": graph.overall_quality}
             insights, recommendations = [], []
             summary = f"Live model graph on '{request.input_text}' ({engine})."
-
-        learning = _reinforce(graph, request.hebbian_rate, request.q_discount)
-        payload = _shape(graph)
-        payload["learning"] = learning
-        payload["scoring"] = scoring
-        payload["engine"] = engine
-        payload["insights"] = insights
-        payload["recommendations"] = recommendations
-        payload["summary"] = summary
+        payload, learning = _assemble(graph, request, engine, scoring, insights, recommendations, summary)
         success = True
         return payload
     except Exception as exc:
@@ -260,17 +265,46 @@ def generate_graph(request: GraphRequest) -> Dict[str, Any]:
         logger.exception("Generation failed for %r", request.input_text)
         raise GraphServiceError(error) from exc
     finally:
-        elapsed = round(time.time() - start, 4)
-        metrics = {
-            "elapsed_seconds": elapsed,
-            "nodes": payload.get("metrics", {}).get("total_nodes", 0),
-            "edges": payload.get("metrics", {}).get("total_edges", 0),
-            "hebbian_plasticity": learning.get("hebbian_plasticity", 0.0),
-            "q_reward": learning.get("q_reward", 0.0),
-        }
-        span.post(success=success, metrics=metrics, error=error)
-        if success:
-            payload["telemetry"] = {"span_id": span.span_id, "paths": span.paths, "elapsed_seconds": elapsed}
+        _close_span(span, start, success, error, payload, learning)
+
+
+async def generate_graph_async(request: GraphRequest) -> Dict[str, Any]:
+    """Async generation. The live model call is awaited (native async via
+    dspy ``acall`` when a dspy.LM backend is configured, else offloaded off the
+    event loop); the deterministic engine runs in a worker thread. Nothing here
+    blocks the asyncio loop (Tuner finding 1)."""
+    import anyio
+    parameters = request.to_parameters()
+    span = _open_span(request, parameters)
+    start, success, error = time.time(), False, None
+    payload: Dict[str, Any] = {}
+    learning: Dict[str, Any] = {}
+    try:
+        graph, engine = None, "deterministic"
+        try:
+            from . import live_engine
+            if live_engine.is_live():
+                graph = await live_engine.agenerate(request.input_text, parameters, request.generation_mode.value)
+                if graph is not None:
+                    engine = f"live:{live_engine.backend_name()}"
+        except Exception as exc:  # pragma: no cover - never fatal
+            logger.warning("async live engine unavailable, falling back: %s", exc)
+        if graph is None:
+            graph, scoring, insights, recommendations, summary = await anyio.to_thread.run_sync(
+                _build_deterministic, request, parameters)
+        else:
+            scoring = {"mean_confidence": graph.overall_quality}
+            insights, recommendations = [], []
+            summary = f"Live model graph on '{request.input_text}' ({engine})."
+        payload, learning = _assemble(graph, request, engine, scoring, insights, recommendations, summary)
+        success = True
+        return payload
+    except Exception as exc:
+        error = str(exc)
+        logger.exception("Async generation failed for %r", request.input_text)
+        raise GraphServiceError(error) from exc
+    finally:
+        _close_span(span, start, success, error, payload, learning)
 
 
 PRESETS: Dict[str, Dict[str, Any]] = {

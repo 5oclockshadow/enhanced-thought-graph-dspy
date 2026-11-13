@@ -116,3 +116,18 @@ def test_health_ready_and_live(client):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# -- async generation path -------------------------------------------------
+def test_generate_graph_async_deterministic():
+    import asyncio
+    from graphos.service import GraphRequest, generate_graph_async
+    data = asyncio.run(generate_graph_async(GraphRequest(input_text="async churn drivers", max_nodes=10)))
+    assert data["metrics"]["total_nodes"] >= 1
+    assert data["engine"] == "deterministic"  # live disabled in tests
+
+
+def test_async_api_graph_endpoint(client):
+    r = client.post("/api/graph", json={"input_text": "async endpoint", "max_nodes": 8})
+    assert r.status_code == 200
+    assert r.json()["graph_id"]

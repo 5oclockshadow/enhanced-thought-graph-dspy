@@ -61,21 +61,42 @@ def _clamp(x, lo=0.05, hi=0.99) -> float:
         return 0.5
 
 
+def _prompt(input_text: str, mode: str, n: int) -> str:
+    return (f"Topic: {input_text}\nGeneration mode: {mode}\n"
+            f"Produce exactly {n} thoughts and a connected graph.")
+
+
 def generate(input_text: str, params: GraphParameters, mode: str) -> Optional[ThoughtGraph]:
-    """Generate a real graph via the live model; None on any failure."""
+    """Generate a real graph via the live model (sync); None on any failure."""
     backend = _be.get_backend()
     if backend is None:
         return None
     n = max(5, min(params.max_nodes, 18))
-    prompt = (f"Topic: {input_text}\nGeneration mode: {mode}\n"
-              f"Produce exactly {n} thoughts and a connected graph.")
     try:
-        raw = backend.complete(prompt, _SYS, timeout=150)
+        raw = backend.complete(_prompt(input_text, mode, n), _SYS, timeout=150)
     except Exception as exc:
         logger.warning("live generation call failed: %s", exc)
         return None
+    return _graph_from_json(raw, params, n)
 
-    data = extract_json(raw)
+
+async def agenerate(input_text: str, params: GraphParameters, mode: str) -> Optional[ThoughtGraph]:
+    """Async generation via the backend port (native dspy ``acall`` when the
+    backend supports it, else off-thread). None on any failure."""
+    if not _be.is_live():
+        return None
+    n = max(5, min(params.max_nodes, 18))
+    try:
+        raw = await _be.acomplete(_prompt(input_text, mode, n), _SYS, timeout=150)
+    except Exception as exc:
+        logger.warning("async live generation call failed: %s", exc)
+        return None
+    return _graph_from_json(raw, params, n)
+
+
+def _graph_from_json(raw: Optional[str], params: GraphParameters, n: int) -> Optional[ThoughtGraph]:
+    """Parse a model reply into a ThoughtGraph; shared by sync + async paths."""
+    data = extract_json(raw or "")
     if not data:
         logger.warning("no parseable JSON in model output")
         return None

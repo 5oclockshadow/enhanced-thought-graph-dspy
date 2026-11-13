@@ -34,9 +34,9 @@ from pydantic import BaseModel, Field
 
 from . import __version__
 from .config import settings
-from .jobs import JobManager, QueueFull, run_generation
+from .jobs import JobManager, QueueFull, run_generation_async
 from .security import principal
-from .service import PRESETS, GraphRequest, GraphServiceError, generate_graph
+from .service import PRESETS, GraphRequest, GraphServiceError
 from .store import Store
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -263,17 +263,17 @@ async def list_artifacts(request: Request, sid: str) -> Dict[str, Any]:
     return {"artifacts": _store(request).list_artifacts(sid)}
 
 
-# -- synchronous generate (+persist); back-compat for simple clients ------
-# Plain `def` so Starlette runs it in a worker thread — the 30-150s model call
-# must never block the event loop (Tuner finding 1).
+# -- generate (+persist); back-compat for simple clients ------------------
+# Truly async: the 30-150s model call is awaited (native async with a dspy.LM
+# backend, else offloaded off-thread) — it never blocks the event loop.
 @app.post("/api/graph")
-def graph_sync(request: Request, body: GraphRequest, owner: str = Depends(principal)) -> JSONResponse:
+async def graph_sync(request: Request, body: GraphRequest, owner: str = Depends(principal)) -> JSONResponse:
     store = _store(request)
     body = _cap_nodes(body)
     session = store.create_session(f"Quick · {body.input_text[:48]}", owner=owner)
     run_id = store.create_run(session["id"], body.input_text, body.model_dump(mode="json"))
     try:
-        payload = run_generation(store, session["id"], run_id, body)  # shared lifecycle
+        payload = await run_generation_async(store, session["id"], run_id, body)
     except GraphServiceError as exc:
         raise HTTPException(502, f"graph generation failed: {exc}")
     return JSONResponse(payload)
