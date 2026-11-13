@@ -248,3 +248,8 @@ async def index() -> FileResponse:
 
 if _FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_FRONTEND_DIR)), name="static")
+
+# Graph Foundry · Universal Builder console (self-contained three.js app).
+_FOUNDRY_DIR = Path(__file__).resolve().parent.parent / "foundry"
+if _FOUNDRY_DIR.exists():
+    app.mount("/foundry", StaticFiles(directory=str(_FOUNDRY_DIR), html=True), name="foundry")

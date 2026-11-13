@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graph Foundry · Universal Builder</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root{--bg:#06080E;--panel:rgba(11,15,23,.82);--line:#1A2433;--text:#E8EEF7;--dim:#9AA7B8;--mute:#5E6B7E;
+    --cyan:#22D3EE;--violet:#A855F7;--green:#34D399;--amber:#FBBF24;--pink:#F472B6;}
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);
+    font-family:'Inter',system-ui,sans-serif;}
+  #c{position:fixed;inset:0;display:block;}
+  .ov{position:fixed;pointer-events:none;}
+  .ov *{pointer-events:auto;}
+  /* header */
+  .hdr{top:0;left:0;right:0;display:flex;align-items:center;gap:14px;padding:14px 20px;
+    background:linear-gradient(180deg,rgba(6,8,14,.9),transparent);}
+  .brand{display:flex;align-items:center;gap:11px;}
+  .mark{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--cyan),var(--violet));
+    display:grid;place-items:center;box-shadow:0 0 20px rgba(34,211,238,.5);}
+  .brand b{font-size:15px;letter-spacing:-.2px;}.brand small{display:block;color:var(--mute);font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;}
+  .ctrl{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+  .inp{background:#0C1320;border:1px solid #22304A;color:var(--text);font-size:12.5px;padding:8px 11px;border-radius:9px;outline:none;width:230px;}
+  select.inp{width:auto;}
+  .btn{background:linear-gradient(135deg,var(--cyan),var(--violet));color:#070A10;border:none;font-weight:600;font-size:12.5px;padding:8px 14px;border-radius:9px;box-shadow:0 0 14px rgba(34,211,238,.35);}
+  .tog{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dim);background:#0C1320;border:1px solid #22304A;padding:6px 10px;border-radius:9px;}
+  .tog input{accent-color:var(--cyan);}
+  .ghost{background:#0C1320;border:1px solid #22304A;color:var(--dim);font-size:12px;padding:8px 12px;border-radius:9px;}
+  /* commentary */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;backdrop-filter:blur(10px);}
+  .commentary{top:78px;right:16px;width:340px;max-height:46vh;display:flex;flex-direction:column;}
+  .commentary .ph{padding:11px 14px;border-bottom:1px solid var(--line);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--mute);}
+  .stream{overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:9px;}
+  .re{border-left:2px solid #22304A;padding:2px 0 2px 10px;}
+  .re .st{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--cyan);}
+  .re .th{font-size:12px;color:var(--dim);margin:2px 0;}
+  .re .ac{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--violet);}
+  .re .ob{font-size:11.5px;color:#8CF2FF;}
+  /* metrics */
+  .metrics{bottom:16px;left:16px;display:flex;gap:8px;flex-wrap:wrap;max-width:60vw;}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:9px 13px;backdrop-filter:blur(10px);min-width:78px;}
+  .kpi b{font-size:18px;font-family:'JetBrains Mono',monospace;}.kpi small{display:block;color:var(--mute);font-size:10px;text-transform:uppercase;letter-spacing:.5px;}
+  /* source */
+  .source{bottom:16px;right:16px;width:340px;max-height:30vh;overflow:auto;}
+  .source .ph{padding:9px 13px;border-bottom:1px solid var(--line);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--mute);display:flex;justify-content:space-between;}
+  .source pre{margin:0;padding:11px 13px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;color:#B9E6F0;white-space:pre-wrap;}
+  /* skills */
+  .skills{top:78px;left:16px;width:230px;max-height:40vh;overflow:auto;}
+  .skills .ph{padding:10px 13px;border-bottom:1px solid var(--line);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--mute);}
+  .skill{padding:9px 13px;border-bottom:1px solid #121a26;font-size:12px;display:flex;justify-content:space-between;gap:8px;}
+  .skill a{color:var(--cyan);font-size:11px;}
+  /* PiP */
+  .pip{position:fixed;width:300px;height:200px;top:120px;left:40%;z-index:30;display:none;flex-direction:column;}
+  .pip.show{display:flex;}
+  .pip .bar{cursor:move;padding:7px 11px;border-bottom:1px solid var(--line);font-size:11px;color:var(--dim);display:flex;justify-content:space-between;}
+  .pip .body{flex:1;overflow:auto;padding:9px 11px;font-size:11px;color:#8CF2FF;}
+  .legend{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:12px;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;padding:7px 13px;font-size:11px;color:var(--dim);backdrop-filter:blur(10px);}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="ov hdr">
+  <div class="brand"><div class="mark" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24"><g fill="#070A10"><circle cx="5" cy="6" r="2.3"/><circle cx="19" cy="7" r="2.3"/><circle cx="12" cy="18" r="2.3"/><path stroke="#070A10" stroke-width="1.6" fill="none" d="M5 6 L12 18 M19 7 L12 18 M5 6 L19 7"/></g></svg></div>
+    <div><b>Universal Builder</b><small id="sig">Graph Foundry · self-writing harness</small></div></div>
+  <div class="ctrl">
+    <input class="inp" id="goal" placeholder="State a goal… e.g. plan a delivery route" value="classify points into two labels">
+    <select class="inp" id="task"></select>
+    <label class="tog"><input type="checkbox" id="auto">Auto-start</label>
+    <label class="tog"><input type="checkbox" id="restart">Restart&lt;target</label>
+    <button class="ghost" id="zoom">Zoom-to-best</button>
+    <button class="btn" id="start">Build ▸</button>
+  </div>
+</div>
+
+<div class="ov panel skills"><div class="ph">Shipped engine specs</div><div id="skills"></div></div>
+
+<div class="ov panel commentary"><div class="ph">ReAct · Thought → Action → Observation</div><div class="stream" id="stream"></div></div>
+
+<div class="ov metrics" id="metrics"></div>
+
+<div class="ov panel source"><div class="ph"><span>Lead source · di.write</span><span id="fitlbl"></span></div><pre id="src">// press Build to synthesize an engine</pre></div>
+
+<div class="ov panel pip" id="pip"><div class="bar" id="pipbar"><span>Zoom-to-best · mirror</span><span id="pipx" style="cursor:pointer">×</span></div><div class="body" id="pipbody"></div></div>
+
+<div class="legend"><span><i style="background:#3B2A6B"></i>low fit</span><span><i style="background:#22D3EE"></i>mid</span><span><i style="background:#34D399"></i>high</span><span><i style="background:#FBBF24"></i>lead</span></div>
+
+<script src="./three.min.js"></script>
+<script src="./foundry-builder.js"></script>
+<script src="./cortex-cinema.js"></script>
+<script>
+(function(){
+  "use strict";
+  var FB = window.FoundryBuilder;
+  // ---- three.js scene ----
+  var canvas = document.getElementById("c");
+  var renderer = new THREE.WebGLRenderer({canvas:canvas, antialias:true});
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio||1));
+  var scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x06080E, 0.012);
+  var camera = new THREE.PerspectiveCamera(55, 1, 0.1, 400);
+  camera.position.set(0,16,30);
+  var cinema = new window.CortexCinema(camera);
+  function resize(){ var w=window.innerWidth,h=window.innerHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); }
+  window.addEventListener("resize", resize); resize();
+
+  scene.add(new THREE.AmbientLight(0x4a5a7a, 0.7));
+  var p1=new THREE.PointLight(0x22D3EE,1.1,120); p1.position.set(18,24,18); scene.add(p1);
+  var p2=new THREE.PointLight(0xA855F7,1.0,120); p2.position.set(-20,18,-10); scene.add(p2);
+  // grid floor
+  var grid=new THREE.GridHelper(60,30,0x1a2740,0x121a28); grid.position.y=0; scene.add(grid);
+  // starfield
+  (function(){ var g=new THREE.BufferGeometry(), N=600, a=new Float32Array(N*3);
+    for(var i=0;i<N;i++){ a[i*3]=(Math.random()-0.5)*260; a[i*3+1]=Math.random()*120-10; a[i*3+2]=(Math.random()-0.5)*260; }
+    g.setAttribute("position", new THREE.BufferAttribute(a,3));
+    scene.add(new THREE.Points(g, new THREE.PointsMaterial({color:0x2a3a55,size:0.5}))); })();
+
+  // sphere pool
+  var POOL=70, sphGeo=new THREE.SphereGeometry(1,18,18), spheres=[];
+  for(var i=0;i<POOL;i++){ var m=new THREE.Mesh(sphGeo, new THREE.MeshStandardMaterial({color:0x3B2A6B,emissive:0x101830,roughness:.4,metalness:.3})); m.visible=false; scene.add(m); spheres.push(m); }
+  // lead glow sprite
+  function glowTex(){ var cv=document.createElement("canvas"); cv.width=cv.height=128; var ct=cv.getContext("2d");
+    var g=ct.createRadialGradient(64,64,4,64,64,64); g.addColorStop(0,"rgba(251,191,36,.9)"); g.addColorStop(1,"rgba(251,191,36,0)");
+    ct.fillStyle=g; ct.fillRect(0,0,128,128); return new THREE.CanvasTexture(cv); }
+  var lead=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex(),transparent:true,depthWrite:false})); lead.scale.set(7,7,1); scene.add(lead);
+
+  // program-graph (floats above)
+  var pg=new THREE.Group(); pg.position.set(0,15,-5); scene.add(pg);
+  function labelSprite(text,color){ var cv=document.createElement("canvas"); cv.width=256; cv.height=64; var ct=cv.getContext("2d");
+    ct.fillStyle="rgba(13,20,32,.85)"; ct.strokeStyle=color; ct.lineWidth=3; roundRect(ct,3,3,250,58,12); ct.fill(); ct.stroke();
+    ct.fillStyle="#E8EEF7"; ct.font="22px Inter, sans-serif"; ct.textAlign="center"; ct.textBaseline="middle"; ct.fillText(text,128,32);
+    var s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv),transparent:true})); s.scale.set(7,1.75,1); return s; }
+  function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
+  function buildPG(nodes){ while(pg.children.length) pg.remove(pg.children[0]);
+    var cols=["#22D3EE","#A855F7","#A855F7","#34D399"], SP=10;
+    nodes.forEach(function(n,i){ var s=labelSprite(n.label.length>16?n.label.slice(0,15)+"…":n.label, cols[i%4]); s.scale.set(5.6,1.4,1); s.position.set((i-(nodes.length-1)/2)*SP,0,0); pg.add(s);
+      if(i>0){ var mat=new THREE.LineBasicMaterial({color:0x2a3a55}); var geo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3((i-1-(nodes.length-1)/2)*SP+2.8,0,0),new THREE.Vector3((i-(nodes.length-1)/2)*SP-2.8,0,0)]); pg.add(new THREE.Line(geo,mat)); } }); }
+
+  function ramp(f){ // fitness 0..1 -> color
+    var stops=[[0x3B,0x2A,0x6B],[0x6D,0x28,0xD9],[0x22,0xD3,0xEE],[0x34,0xD3,0x99]];
+    var t=Math.max(0,Math.min(1,f))*(stops.length-1), i=Math.floor(t), a=stops[i], b=stops[Math.min(stops.length-1,i+1)], u=t-i;
+    return (Math.round(a[0]+(b[0]-a[0])*u)<<16)|(Math.round(a[1]+(b[1]-a[1])*u)<<8)|Math.round(a[2]+(b[2]-a[2])*u); }
+
+  // ---- UI ----
+  var $=function(id){return document.getElementById(id);};
+  var sel=$("task"); Object.keys(FB.TASKS).forEach(function(k){ var o=document.createElement("option"); o.value=k; o.textContent=FB.TASKS[k].label; sel.appendChild(o); });
+
+  function reEntry(e){ var d=document.createElement("div"); d.className="re";
+    d.innerHTML='<div class="st">'+e.stage+'</div>'+(e.thought?'<div class="th">'+e.thought+'</div>':'')+
+      '<div class="ac">'+e.tool+'</div>'+(e.observation?'<div class="ob">'+e.observation+'</div>':'');
+    $("stream").appendChild(d); $("stream").scrollTop=1e9;
+    var pb=$("pipbody"); pb.innerHTML += '<div>'+e.stage+' · '+(e.observation||e.tool)+'</div>'; pb.scrollTop=1e9; }
+
+  function metrics(m){ $("metrics").innerHTML=[
+    ["Task", m.task],["Round", m.round],["Gen", m.gen],["Best", m.best.toFixed(3)],
+    ["Mean", m.mean.toFixed(3)],["Evals", m.evals],["Best-ever", m.bestEver.toFixed(3)]
+  ].map(function(k){return '<div class="kpi"><b>'+k[1]+'</b><small>'+k[0]+'</small></div>';}).join(""); }
+
+  // ---- round controller ----
+  var S={taskName:null, task:null, env:null, run:null, round:0, bestEver:0, frames:0,
+    leadPos:new THREE.Vector3(0,3,0), lastLead:null, running:false};
+  var GEN_EVERY=10; // frames between generations
+
+  function positions(snap){
+    var box=S.task.box, span=box[1]-box[0], n=snap.individuals.length;
+    for(var i=0;i<POOL;i++){ var m=spheres[i]; if(i>=n){ m.visible=false; continue;} m.visible=true;
+      var ind=snap.individuals[i], g=ind.genome;
+      var gx=((g[0]-box[0])/span)*2-1, gz=((g[(g.length>1?1:0)]-box[0])/span)*2-1;
+      var tx=gx*14, tz=gz*14, ty=1+ind.fit*12;
+      // funnel: low-fitness individuals fan out, the fit ones converge to the peak
+      var jit=(1-ind.fit)*(1-ind.fit)*9;
+      tx += Math.cos(i*2.399+snap.gen*0.13)*jit; tz += Math.sin(i*2.399+snap.gen*0.13)*jit;
+      m.position.lerp(new THREE.Vector3(tx,ty,tz), 0.4);
+      var r=0.5+ind.fit*0.9; m.scale.set(r,r,r);
+      var col=ind.best?0xFBBF24:ramp(ind.fit); m.material.color.setHex(col); m.material.emissive.setHex(ind.best?0x4a3200:0x0c1428);
+      if(ind.best){ S.leadPos.copy(m.position); lead.position.copy(m.position); }
+    }
+  }
+
+  function startRound(seedBump){
+    var goal=$("goal").value.trim();
+    S.taskName = $("task").value || FB.routeGoal(goal);
+    if(goal && !seedBump){ var routed=FB.routeGoal(goal); if(routed){ S.taskName=routed; $("task").value=routed; } }
+    S.task=FB.TASKS[S.taskName];
+    var seed=(S.round+1)*97+ (seedBump?Date.now()%1000:0);
+    S.env=FB.gym.make(S.task, seed);
+    S.run=FB.createEvolve(S.task, S.env.cases, {seed:seed, popSize:60, gens:28});
+    S.round+=1; S.frames=0; S.running=true;
+    var sig=FB.dspy.signature(S.task); $("sig").textContent=sig.inputs+" → "+sig.outputs+" · "+sig.metric;
+    $("stream").innerHTML=""; $("pipbody").innerHTML="";
+    FB.plan(S.task, goal).forEach(function(e){ if(e.stage!=="Compile"&&e.stage!=="Ship") reEntry(e); });
+    reEntry({stage:"Scholar", tool:"scholar.search", observation: FB.scholar.search(S.task).join(" · ")});
+    var snap=S.run.snapshot(); positions(snap); buildPG(FB.dspy.compile(S.task,{genome:snap.bestGenome,fitness:snap.bestFit}).nodes);
+    $("src").textContent=snap.source;
+  }
+
+  function ship(snap){
+    var best={genome:S.run.bestEver.genome, fitness:S.run.bestEver.fitness};
+    S.bestEver=Math.max(S.bestEver, best.fitness);
+    var pgc=FB.dspy.compile(S.task, best), spec=FB.engineSpec(S.task, best, pgc, FB.dspy.signature(S.task));
+    reEntry({stage:"Compile", tool:"dspy.compile", observation:"program-graph · fitness "+best.fitness.toFixed(3)});
+    reEntry({stage:"Ship", tool:"engineSpec", observation:"shipped engine spec → skill"});
+    var blob=new Blob([JSON.stringify(spec,null,2)],{type:"application/json"});
+    var url=URL.createObjectURL(blob);
+    var d=document.createElement("div"); d.className="skill";
+    d.innerHTML='<span>R'+S.round+' · '+S.task.name.split("_")[0]+' · '+best.fitness.toFixed(2)+'</span><a href="'+url+'" download="engine_'+S.task.name+'_r'+S.round+'.json">spec</a>';
+    $("skills").insertBefore(d, $("skills").firstChild);
+  }
+
+  function tick(){
+    requestAnimationFrame(tick);
+    if(S.running && S.run){
+      S.frames++;
+      if(S.frames % GEN_EVERY === 0){
+        var snap=S.run.step(); positions(snap); $("src").textContent=snap.source; $("fitlbl").textContent="fit "+snap.bestFit.toFixed(3);
+        metrics({task:S.task.name.split("_")[0], round:S.round, gen:snap.gen, best:snap.bestFit, mean:snap.mean, evals:snap.evals, bestEver:Math.max(S.bestEver,snap.bestEver)});
+        if(snap.gen % 6 === 0) reEntry({stage:"Evolve", tool:"deap.evolve", observation:"gen "+snap.gen+" · best "+snap.bestFit.toFixed(3)+" · mean "+snap.mean.toFixed(3)});
+        if(S.run.done){
+          S.running=false; ship(snap);
+          var below = Math.max(S.bestEver, snap.bestEver) < 0.9;
+          if($("auto").checked || ($("restart").checked && below)){ setTimeout(function(){ startRound(true); }, 900); }
+        }
+      }
+    }
+    lead.material.rotation += 0.01;
+    pg.rotation.y = Math.sin(Date.now()*0.0002)*0.25;
+    cinema.update(S.running? S.leadPos : null);
+    renderer.render(scene, camera);
+  }
+
+  $("start").addEventListener("click", function(){ startRound(false); });
+  $("goal").addEventListener("keydown", function(e){ if(e.key==="Enter") startRound(false); });
+  var zoomed=false;
+  $("zoom").addEventListener("click", function(){ zoomed=!zoomed; cinema.zoomToBest(zoomed, S.leadPos); $("pip").classList.toggle("show", zoomed); $("zoom").textContent=zoomed?"Reset view":"Zoom-to-best"; });
+  $("pipx").addEventListener("click", function(){ $("pip").classList.remove("show"); zoomed=false; cinema.zoomToBest(false); $("zoom").textContent="Zoom-to-best"; });
+  // PiP drag
+  (function(){ var pip=$("pip"), bar=$("pipbar"), dx=0,dy=0,drag=false;
+    bar.addEventListener("mousedown",function(e){drag=true;dx=e.clientX-pip.offsetLeft;dy=e.clientY-pip.offsetTop;});
+    window.addEventListener("mousemove",function(e){ if(drag){ pip.style.left=(e.clientX-dx)+"px"; pip.style.top=(e.clientY-dy)+"px"; pip.style.transform="none"; }});
+    window.addEventListener("mouseup",function(){drag=false;}); })();
+
+  // boot
+  metrics({task:"—",round:0,gen:0,best:0,mean:0,evals:0,bestEver:0});
+  buildPG([{label:"input"},{label:"decode(genome)"},{label:"execute(src)"},{label:"output"}]);
+  tick();
+  // auto-run first round shortly so the field is alive on load
+  setTimeout(function(){ startRound(false); }, 600);
+})();
+</script>
+</body>
+</html>
