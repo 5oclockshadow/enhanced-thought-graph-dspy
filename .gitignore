@@ -6,3 +6,9 @@ telemetry/*.json
 GRAPHOS_EXECUTION_LOG.md
 *.log
 .venv/
+
+# Maximillian: verbose optimizer ledger stays out of Git (PRD §2.2);
+# HTML reports are regenerable artifacts.
+tracking/
+reports/*.html
+models/
