@@ -217,20 +217,42 @@ def generate_graph(request: GraphRequest) -> Dict[str, Any]:
             constraints=request.constraints,
             context={"surface": "graphos"},
         )
-        result = _reactor(expanded, use_fake_data=True)
-        if not result.graph:
-            raise GraphServiceError("engine returned no graph")
+        # Autopilot: use the live model when the environment provides one,
+        # otherwise the deterministic engine with data-derived scoring.
+        graph = None
+        engine = "deterministic"
+        try:
+            from . import live_engine
+            if live_engine.is_live():
+                graph = live_engine.generate(request.input_text, parameters,
+                                             request.generation_mode.value)
+                if graph is not None:
+                    engine = f"live:{live_engine.backend_name()}"
+        except Exception as exc:  # pragma: no cover - never fatal
+            logger.warning("live engine unavailable, falling back: %s", exc)
 
-        # Replace the engine's random seed scores with deterministic values
-        # computed from the actual input text and graph structure.
-        scoring = realize_scores(result.graph, request.input_text)
-        learning = _reinforce(result.graph, request.hebbian_rate, request.q_discount)
-        payload = _shape(result.graph)
+        if graph is None:
+            result = _reactor(expanded, use_fake_data=True)
+            if not result.graph:
+                raise GraphServiceError("engine returned no graph")
+            graph = result.graph
+            # Deterministic values computed from input text + graph structure.
+            scoring = realize_scores(graph, request.input_text)
+            insights, recommendations, summary = (
+                list(result.insights or []), list(result.recommendations or []), result.summary)
+        else:
+            scoring = {"mean_confidence": graph.overall_quality}
+            insights, recommendations = [], []
+            summary = f"Live model graph on '{request.input_text}' ({engine})."
+
+        learning = _reinforce(graph, request.hebbian_rate, request.q_discount)
+        payload = _shape(graph)
         payload["learning"] = learning
         payload["scoring"] = scoring
-        payload["insights"] = list(result.insights or [])
-        payload["recommendations"] = list(result.recommendations or [])
-        payload["summary"] = result.summary
+        payload["engine"] = engine
+        payload["insights"] = insights
+        payload["recommendations"] = recommendations
+        payload["summary"] = summary
         success = True
         return payload
     except Exception as exc:

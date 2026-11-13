@@ -15,6 +15,8 @@ import pytest
 _TMP = tempfile.mkdtemp(prefix="graphos-test-")
 os.environ["GRAPHOS_TELEMETRY_DIR"] = os.path.join(_TMP, "telemetry")
 os.environ["GRAPHOS_EXECUTION_LOG"] = os.path.join(_TMP, "log.md")
+# Keep tests deterministic and offline — never call a live model.
+os.environ["GRAPHOS_DISABLE_LIVE"] = "1"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
