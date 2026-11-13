@@ -29,6 +29,7 @@ from models import (
 )
 from dspy_program import AutonomousThoughtReactor
 
+from .scoring import realize_scores
 from .telemetry import TelemetrySpan
 
 logger = logging.getLogger("graphos.service")
@@ -220,9 +221,13 @@ def generate_graph(request: GraphRequest) -> Dict[str, Any]:
         if not result.graph:
             raise GraphServiceError("engine returned no graph")
 
+        # Replace the engine's random seed scores with deterministic values
+        # computed from the actual input text and graph structure.
+        scoring = realize_scores(result.graph, request.input_text)
         learning = _reinforce(result.graph, request.hebbian_rate, request.q_discount)
         payload = _shape(result.graph)
         payload["learning"] = learning
+        payload["scoring"] = scoring
         payload["insights"] = list(result.insights or [])
         payload["recommendations"] = list(result.recommendations or [])
         payload["summary"] = result.summary

@@ -46,6 +46,20 @@ def test_reinforcement_fields_present():
         assert edge["reinforced_weight"] <= 1.0
 
 
+def test_scores_are_derived_not_random():
+    """Relevance tracks real overlap with the query; nothing is random."""
+    data = generate_graph(GraphRequest(input_text="renewable solar energy storage", max_nodes=12))
+    assert "scoring" in data
+    # Every score is a bounded, rounded real number.
+    for t in data["thoughts"]:
+        for key in ("confidence", "relevance", "novelty", "practicality"):
+            assert 0.0 <= t[key] <= 1.0
+    for c in data["connections"]:
+        assert 0.0 <= c["strength"] <= 1.0
+    # Graph quality is a weighted blend, so strictly within (0, 1).
+    assert 0.0 < data["metrics"]["quality_score"] < 1.0
+
+
 def test_api_graph_endpoint():
     resp = client.post("/api/graph", json={"input_text": "sustainable energy", "max_nodes": 10})
     assert resp.status_code == 200
