@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY, title TEXT NOT NULL,
+    id TEXT PRIMARY KEY, title TEXT NOT NULL, owner_id TEXT NOT NULL DEFAULT 'public',
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS runs (
@@ -71,8 +71,20 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA foreign_keys=ON;")
+        self._conn.execute("PRAGMA busy_timeout=5000;")  # wait on contention vs. erroring
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            self._conn.commit()
+            self._migrate()
+
+    def _migrate(self) -> None:
+        """Versioned schema migrations (user_version). Add columns forward-compatibly."""
+        ver = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        if ver < 1:
+            cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(sessions)")}
+            if "owner_id" not in cols:
+                self._conn.execute("ALTER TABLE sessions ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'public'")
+            self._conn.execute("PRAGMA user_version=1")
             self._conn.commit()
 
     def close(self) -> None:
@@ -88,26 +100,56 @@ class Store:
             return False
 
     # -- sessions ----------------------------------------------------------
-    def create_session(self, title: str) -> Dict[str, Any]:
+    def create_session(self, title: str, owner: str = "public") -> Dict[str, Any]:
         sid, now = _id("sess"), _now()
         with self._lock:
             self._conn.execute(
-                "INSERT INTO sessions(id,title,created_at,updated_at) VALUES(?,?,?,?)",
-                (sid, title[:200] or "Untitled session", now, now))
+                "INSERT INTO sessions(id,title,owner_id,created_at,updated_at) VALUES(?,?,?,?,?)",
+                (sid, title[:200] or "Untitled session", owner, now, now))
             self._conn.commit()
         return self.get_session(sid)
 
-    def get_session(self, sid: str) -> Optional[Dict[str, Any]]:
+    def get_session(self, sid: str, owner: Optional[str] = None) -> Optional[Dict[str, Any]]:
         with self._lock:
-            row = self._conn.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+            if owner is None:
+                row = self._conn.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+            else:
+                row = self._conn.execute("SELECT * FROM sessions WHERE id=? AND owner_id=?",
+                                         (sid, owner)).fetchone()
         return dict(row) if row else None
 
-    def list_sessions(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def list_sessions(self, owner: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        # Single LEFT JOIN + GROUP BY instead of a correlated subquery per row (Tuner).
+        where = "" if owner is None else "WHERE s.owner_id = :owner "
         with self._lock:
             rows = self._conn.execute(
-                "SELECT s.*, (SELECT COUNT(*) FROM graphs g WHERE g.session_id=s.id) AS graph_count "
-                "FROM sessions s ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall()
+                "SELECT s.*, COUNT(g.id) AS graph_count FROM sessions s "
+                "LEFT JOIN graphs g ON g.session_id = s.id " + where +
+                "GROUP BY s.id ORDER BY s.updated_at DESC LIMIT :limit",
+                {"owner": owner, "limit": limit}).fetchall()
         return [dict(r) for r in rows]
+
+    def delete_session(self, sid: str, owner: Optional[str] = None) -> bool:
+        """Cascade-delete a session and all its data (right-to-erasure)."""
+        with self._lock:
+            sess = self.get_session(sid, owner=owner)
+            if not sess:
+                return False
+            for tbl in ("artifacts", "graphs", "runs"):
+                self._conn.execute(f"DELETE FROM {tbl} WHERE session_id=?", (sid,))
+            self._conn.execute("DELETE FROM sessions WHERE id=?", (sid,))
+            self._conn.commit()
+        return True
+
+    def reap_orphan_runs(self) -> int:
+        """On startup, fail any run left 'pending'/'running' by a prior crash/restart
+        so polling clients fail fast instead of hanging forever."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE runs SET status='failed', error='interrupted by restart', finished_at=? "
+                "WHERE status IN ('pending','running')", (_now(),))
+            self._conn.commit()
+            return cur.rowcount
 
     def touch_session(self, sid: str) -> None:
         with self._lock:

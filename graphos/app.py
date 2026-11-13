@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -34,7 +34,8 @@ from pydantic import BaseModel, Field
 
 from . import __version__
 from .config import settings
-from .jobs import JobManager
+from .jobs import JobManager, QueueFull, run_generation
+from .security import principal
 from .service import PRESETS, GraphRequest, GraphServiceError, generate_graph
 from .store import Store
 
@@ -48,6 +49,9 @@ _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
     app.state.store = Store(settings.db_path)
+    reaped = app.state.store.reap_orphan_runs()  # fail runs orphaned by a prior restart
+    if reaped:
+        logger.warning("reaped %d orphaned run(s) from previous run", reaped)
     app.state.jobs = JobManager(app.state.store, workers=settings.job_workers)
     logger.info("Graphos %s started · db=%s", __version__, settings.db_path)
     try:
@@ -72,7 +76,8 @@ except Exception as _exc:  # pragma: no cover
     logging.getLogger("graphos.app").warning("foundry api not mounted: %s", _exc)
 
 app.add_middleware(
-    CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True,
+    CORSMiddleware, allow_origins=settings.cors_origins,
+    allow_credentials=settings.cors_allow_credentials,  # never credentials + "*"
     allow_methods=["*"], allow_headers=["*"])
 
 
@@ -121,11 +126,16 @@ async def unhandled_error(request: Request, exc: Exception):
 def _store(request: Request) -> Store:
     app = request.app
     store = getattr(app.state, "store", None)
-    if store is None or not store.ping():
+    if store is None:  # lazy init (e.g. embedded TestClient without lifespan)
         settings.ensure_dirs()
         app.state.store = Store(settings.db_path)
-        app.state.jobs = None  # rebind the job manager to the fresh store
+        app.state.jobs = None
     return app.state.store
+
+
+def _store_opt(request: Request):
+    """Non-creating accessor for health probes — observe, never mutate."""
+    return getattr(request.app.state, "store", None)
 
 
 def _jobs(request: Request) -> JobManager:
@@ -147,17 +157,39 @@ class SessionCreate(BaseModel):
 
 
 # -- health & presets -----------------------------------------------------
-@app.get("/api/health")
-async def health(request: Request) -> Dict[str, Any]:
+@app.get("/api/health/live")
+async def health_live() -> Dict[str, Any]:
+    """Liveness: the process is up. Cheap, no dependencies."""
+    return {"status": "alive", "service": "graphos", "version": __version__}
+
+
+@app.get("/api/health/ready")
+async def health_ready(request: Request) -> JSONResponse:
+    """Readiness: dependencies reachable. 503 pulls the instance from rotation."""
     store = _store(request)
+    ok = store.ping()
     try:
-        from . import live_engine
-        backend = live_engine.backend_name()
+        from . import backend as _be
+        model = _be.backend_name()
     except Exception:
-        backend = "unknown"
-    return {"status": "healthy" if store.ping() else "degraded",
-            "service": "graphos", "version": __version__,
-            "store": "ok" if store.ping() else "down", "model_backend": backend}
+        model = "unknown"
+    body = {"status": "ready" if ok else "not_ready", "store": "ok" if ok else "down",
+            "model_backend": model, "version": __version__}
+    return JSONResponse(body, status_code=200 if ok else 503)
+
+
+@app.get("/api/health")
+async def health(request: Request) -> JSONResponse:
+    store = _store(request)
+    ok = store.ping()
+    try:
+        from . import backend as _be
+        model = _be.backend_name()
+    except Exception:
+        model = "unknown"
+    body = {"status": "healthy" if ok else "degraded", "service": "graphos",
+            "version": __version__, "store": "ok" if ok else "down", "model_backend": model}
+    return JSONResponse(body, status_code=200 if ok else 503)
 
 
 @app.get("/api/presets")
@@ -165,33 +197,47 @@ async def presets() -> Dict[str, Any]:
     return {"presets": PRESETS}
 
 
-# -- sessions -------------------------------------------------------------
+# -- sessions (owner-scoped) ----------------------------------------------
 @app.post("/api/sessions")
-async def create_session(request: Request, body: SessionCreate) -> Dict[str, Any]:
-    return _store(request).create_session(body.title)
+async def create_session(request: Request, body: SessionCreate,
+                         owner: str = Depends(principal)) -> Dict[str, Any]:
+    return _store(request).create_session(body.title, owner=owner)
 
 
 @app.get("/api/sessions")
-async def list_sessions(request: Request) -> Dict[str, Any]:
-    return {"sessions": _store(request).list_sessions()}
+async def list_sessions(request: Request, owner: str = Depends(principal)) -> Dict[str, Any]:
+    # Scoped to the caller — no global enumeration of other tenants' workspaces.
+    return {"sessions": _store(request).list_sessions(owner=owner)}
 
 
 @app.get("/api/sessions/{sid}")
-async def get_session(request: Request, sid: str) -> Dict[str, Any]:
+async def get_session(request: Request, sid: str, owner: str = Depends(principal)) -> Dict[str, Any]:
     store = _store(request)
-    session = store.get_session(sid)
+    session = store.get_session(sid, owner=owner)
     if not session:
         raise HTTPException(404, f"session {sid} not found")
     return {"session": session, "graphs": store.list_graphs(sid),
             "runs": store.list_runs(sid), "artifacts": store.list_artifacts(sid)}
 
 
-@app.post("/api/sessions/{sid}/graph")
-async def enqueue_graph(request: Request, sid: str, body: GraphRequest) -> Dict[str, Any]:
-    store = _store(request)
-    if not store.get_session(sid):
+@app.delete("/api/sessions/{sid}")
+async def delete_session(request: Request, sid: str, owner: str = Depends(principal)) -> Dict[str, Any]:
+    """Right-to-erasure: cascade-delete a session and all its data."""
+    if not _store(request).delete_session(sid, owner=owner):
         raise HTTPException(404, f"session {sid} not found")
-    run_id = _jobs(request).submit(sid, _cap_nodes(body))
+    return {"deleted": True, "session_id": sid}
+
+
+@app.post("/api/sessions/{sid}/graph")
+async def enqueue_graph(request: Request, sid: str, body: GraphRequest,
+                        owner: str = Depends(principal)) -> Dict[str, Any]:
+    store = _store(request)
+    if not store.get_session(sid, owner=owner):
+        raise HTTPException(404, f"session {sid} not found")
+    try:
+        run_id = _jobs(request).submit(sid, _cap_nodes(body))
+    except QueueFull as exc:
+        raise HTTPException(503, str(exc))
     return {"run_id": run_id, "status": "pending", "session_id": sid}
 
 
@@ -218,29 +264,18 @@ async def list_artifacts(request: Request, sid: str) -> Dict[str, Any]:
 
 
 # -- synchronous generate (+persist); back-compat for simple clients ------
+# Plain `def` so Starlette runs it in a worker thread — the 30-150s model call
+# must never block the event loop (Tuner finding 1).
 @app.post("/api/graph")
-async def graph_sync(request: Request, body: GraphRequest) -> JSONResponse:
+def graph_sync(request: Request, body: GraphRequest, owner: str = Depends(principal)) -> JSONResponse:
     store = _store(request)
     body = _cap_nodes(body)
-    session = store.create_session(f"Quick · {body.input_text[:48]}")
+    session = store.create_session(f"Quick · {body.input_text[:48]}", owner=owner)
     run_id = store.create_run(session["id"], body.input_text, body.model_dump(mode="json"))
-    store.start_run(run_id)
-    start = time.time()
     try:
-        payload = generate_graph(body)
+        payload = run_generation(store, session["id"], run_id, body)  # shared lifecycle
     except GraphServiceError as exc:
-        store.finish_run(run_id, status="failed", error=str(exc),
-                         latency_ms=int((time.time() - start) * 1000))
         raise HTTPException(502, f"graph generation failed: {exc}")
-    latency = int((time.time() - start) * 1000)
-    gid = store.save_graph(session["id"], run_id, payload)
-    store.create_artifact(session["id"], gid, "graph", f"Graph · {body.input_text[:48]}",
-                          {"nodes": payload["metrics"]["total_nodes"]})
-    store.finish_run(run_id, status="succeeded", engine=payload.get("engine"),
-                     graph_id=gid, latency_ms=latency)
-    payload["session_id"] = session["id"]
-    payload["run_id"] = run_id
-    payload["graph_id"] = gid
     return JSONResponse(payload)
 
 

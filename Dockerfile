@@ -18,14 +18,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Run as a non-root user.
+# Run as a non-root user; pre-create the data dir so a mounted volume is writable.
 RUN useradd --create-home --uid 10001 graphos \
+    && mkdir -p /app/graphos_data \
     && chown -R graphos:graphos /app
 USER graphos
 
 EXPOSE 8080
 
+# Liveness probe hits the dependency-free /live route; /api/health returns 503
+# when the store is down so orchestrators can pull a wedged instance.
 HEALTHCHECK --interval=30s --timeout=4s --start-period=10s --retries=3 \
-    CMD curl -fsS http://localhost:8080/api/health || exit 1
+    CMD curl -fsS http://localhost:8080/api/health/live || exit 1
 
 CMD ["uvicorn", "graphos.app:app", "--host", "0.0.0.0", "--port", "8080"]

@@ -16,22 +16,38 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
-import re
+import os
+import signal
 import subprocess
 import threading
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from . import backend as _be
+from .config import settings
+from .llm_parse import extract_json
+from .security import require_api_key
 
 logger = logging.getLogger("graphos.foundry")
 router = APIRouter(prefix="/api/foundry", tags=["foundry"])
 
+
+def _require_foundry() -> None:
+    """Gate the code-execution / self-modifying endpoints behind a flag that is
+    OFF by default (Guardian/Skeptic finding 1)."""
+    if not settings.enable_foundry:
+        raise HTTPException(403, "foundry code-execution endpoints are disabled "
+                                 "(set GRAPHOS_ENABLE_FOUNDRY=1 to enable in a trusted environment)")
+
 _REPO = Path(__file__).resolve().parent.parent
 _FOUNDRY_DIR = _REPO / "foundry"
 _PORTFOLIO = _REPO / "graphos_data" / "foundry_portfolio.json"
-_LOCK = threading.Lock()
+_LOCK = threading.RLock()
 _NAMED_LIBS = ["gym", "gymnasium", "deap", "dspy", "metagpt", "mcp", "networkx"]
 
 
@@ -40,14 +56,11 @@ _NAMED_LIBS = ["gym", "gymnasium", "deap", "dspy", "metagpt", "mcp", "networkx"]
 def ingest() -> Dict[str, Any]:
     """Ingest the connected repo's real Python source into an operator library."""
     try:
-        from maximillian.graph_intel import GraphIntel
-        from maximillian.auditor import discover_python_files
+        from .repo_ingest import ingest_repo
+        files, gi, summary = ingest_repo(_REPO)
     except Exception as exc:  # pragma: no cover
         raise HTTPException(500, f"graph-intel unavailable: {exc}")
 
-    files = discover_python_files(_REPO)
-    gi = GraphIntel().build(_REPO, files)
-    summary = gi.summary()
     operators: List[Dict[str, Any]] = []
     for c in summary.top_central[:14]:
         node = c.get("node", "")
@@ -80,10 +93,21 @@ class EngineSpecIn(BaseModel):
 def _load_portfolio() -> List[Dict[str, Any]]:
     if not _PORTFOLIO.exists():
         return []
-    try:
-        return json.loads(_PORTFOLIO.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+    with _LOCK:
+        try:
+            data = json.loads(_PORTFOLIO.read_text(encoding="utf-8"))
+            return data if isinstance(data, list) else []
+        except (json.JSONDecodeError, OSError) as exc:
+            # Craftsman #2: a corrupt/transient read must NOT be silently
+            # overwritten. Quarantine the bad file so the next write starts
+            # fresh without destroying recoverable data.
+            try:
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+                _PORTFOLIO.rename(_PORTFOLIO.with_name(f"foundry_portfolio.corrupt-{stamp}.json"))
+                logger.error("portfolio unreadable (%s); quarantined", exc)
+            except OSError:
+                pass
+            return []
 
 
 @router.get("/portfolio")
@@ -92,15 +116,17 @@ def list_portfolio() -> Dict[str, Any]:
     return {"engines": items[:100], "count": len(items)}
 
 
-@router.post("/portfolio")
+@router.post("/portfolio", dependencies=[Depends(require_api_key)])
 def ship_engine(spec: EngineSpecIn) -> Dict[str, Any]:
     with _LOCK:
         _PORTFOLIO.parent.mkdir(parents=True, exist_ok=True)
         items = _load_portfolio()
         rec = spec.model_dump()
-        rec["id"] = f"eng_{len(items) + 1}_{spec.task}"
+        rec["id"] = f"eng_{uuid.uuid4().hex[:12]}_{spec.task}"
         items.append(rec)
-        _PORTFOLIO.write_text(json.dumps(items, indent=2), encoding="utf-8")
+        tmp = _PORTFOLIO.with_suffix(".tmp")
+        tmp.write_text(json.dumps(items, indent=2), encoding="utf-8")
+        os.replace(tmp, _PORTFOLIO)  # atomic swap
     return {"saved": True, "id": rec["id"], "count": len(items)}
 
 
@@ -124,44 +150,46 @@ _PROPOSE_SYS = (
 )
 
 
-def _extract_json(text: str) -> Optional[Dict[str, Any]]:
-    m = re.search(r"\{.*\}", text or "", re.DOTALL)
-    if not m:
-        return None
+def _validate_in_sandbox(spec: Dict[str, Any]) -> Dict[str, Any]:
+    """Run the model-authored task through the Node validator in a hardened
+    subprocess: scrubbed env (no inherited secrets), own process group so
+    orphaned children die with it, bounded wall-clock (Skeptic finding 1)."""
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+           "NODE_OPTIONS": "--max-old-space-size=128"}
+    proc = subprocess.Popen(
+        ["node", str(_FOUNDRY_DIR / "validate_task.js")],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, env=env, cwd=str(_FOUNDRY_DIR), start_new_session=True)
     try:
-        return json.loads(m.group(0))
-    except Exception:
-        return None
+        out, _ = proc.communicate(input=json.dumps(spec), timeout=25)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)  # kill the whole group
+        except Exception:
+            proc.kill()
+        proc.communicate()
+        raise HTTPException(504, "task validation timed out")
+    try:
+        return json.loads(out or "{}")
+    except json.JSONDecodeError:
+        return {"ok": False, "error": "validator produced no result"}
 
 
-@router.post("/propose")
+@router.post("/propose", dependencies=[Depends(require_api_key), Depends(_require_foundry)])
 def propose(body: ProposeIn) -> Dict[str, Any]:
     """Model writes a new task decoder; we validate it by running real search."""
-    try:
-        from maximillian.synthesizer import detect_backend
-    except Exception as exc:  # pragma: no cover
-        raise HTTPException(500, f"synthesizer unavailable: {exc}")
-    backend = detect_backend()
+    backend = _be.get_backend()
     if backend is None:
         raise HTTPException(503, "no model available in the environment to propose a task")
-
     try:
         raw = backend.complete(f"Goal: {body.goal}\nWrite the task JSON.", _PROPOSE_SYS, timeout=150)
     except Exception as exc:
         raise HTTPException(502, f"model call failed: {exc}")
-    spec = _extract_json(raw)
+    spec = extract_json(raw)
     if not spec:
         raise HTTPException(422, "model did not return a parseable task spec")
 
-    # Validate by actually running an evolutionary search on the proposed task.
-    try:
-        proc = subprocess.run(
-            ["node", str(_FOUNDRY_DIR / "validate_task.js")],
-            input=json.dumps(spec), capture_output=True, text=True, timeout=30)
-        result = json.loads(proc.stdout or "{}")
-    except Exception as exc:
-        raise HTTPException(500, f"validation harness error: {exc}")
-
+    result = _validate_in_sandbox(spec)
     if not result.get("ok"):
         return {"accepted": False, "reason": result.get("error", "validation failed"),
                 "backend": backend.name, "spec": spec}
@@ -172,14 +200,15 @@ def propose(body: ProposeIn) -> Dict[str, Any]:
 _LAST_IMPROVE: Dict[str, Any] = {"status": "idle"}
 
 
-@router.post("/self-improve")
+@router.post("/self-improve", dependencies=[Depends(require_api_key), Depends(_require_foundry)])
 def self_improve_trigger() -> Dict[str, Any]:
     """Kick off the self-beautify loop in the background (re-ingest → RAPTOR →
     Hebbian → model rewrites own CSS, gated). Poll GET for the result."""
     global _LAST_IMPROVE
-    if _LAST_IMPROVE.get("status") == "running":
-        return {"status": "running"}
-    _LAST_IMPROVE = {"status": "running"}
+    with _LOCK:  # atomic check-and-set (Skeptic finding 5: TOCTOU)
+        if _LAST_IMPROVE.get("status") == "running":
+            return {"status": "running"}
+        _LAST_IMPROVE = {"status": "running"}
 
     def _work():
         global _LAST_IMPROVE

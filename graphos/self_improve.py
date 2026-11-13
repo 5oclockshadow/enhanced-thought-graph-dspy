@@ -24,8 +24,12 @@ import re
 import shutil
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from . import backend as _be
+from .llm_parse import strip_fence
 
 logger = logging.getLogger("graphos.self_improve")
 _REPO = Path(__file__).resolve().parent.parent
@@ -34,11 +38,9 @@ _CLUSTERS = ["graphos", "maximillian", "foundry", "frontend", "tools", "tests"]
 
 # -- 1. re-ingest ----------------------------------------------------------
 def reingest() -> Dict[str, Any]:
-    from maximillian.graph_intel import GraphIntel
-    from maximillian.auditor import discover_python_files
-    files = discover_python_files(_REPO)
-    gi = GraphIntel().build(_REPO, files)
-    return {"files": len(files), "summary": gi.summary(), "gi": gi}
+    from .repo_ingest import ingest_repo
+    files, gi, summary = ingest_repo(_REPO)
+    return {"files": len(files), "summary": summary, "gi": gi}
 
 
 # -- 2. RAPTOR (lightweight, deterministic hierarchical summary) -----------
@@ -123,18 +125,12 @@ def _balanced(css: str) -> bool:
     return css.count("{") == css.count("}") and css.count("{") > 0
 
 
-def beautify(target: Path, context: str, backend) -> Dict[str, Any]:
-    original = target.read_text(encoding="utf-8")
-    prompt = (f"Design context (self-ingested):\n{context}\n\n"
-              f"Improve this stylesheet (return the whole file):\n\n{original}")
-    try:
-        out = backend.complete(prompt, _BEAUTIFY_SYS, timeout=240)
-    except Exception as exc:
-        return {"applied": False, "reason": f"model call failed: {exc}"}
-    new = out.strip()
-    if new.startswith("```"):
-        new = re.sub(r"^```[a-z]*\n", "", new); new = re.sub(r"\n```$", "", new)
+# CSS that could exfiltrate data or escape the stylesheet (Skeptic finding 2).
+_INJECTION = re.compile(r"@import|url\(\s*['\"]?\s*(?:https?:)?//|javascript:|</style|<script|expression\s*\(", re.IGNORECASE)
 
+
+def _gate(original: str, new: str) -> Dict[str, Any]:
+    """Pure, testable gate: returns {} if acceptable, else a rejection dict."""
     orig_sel, new_sel = _selectors(original), _selectors(new)
     missing = orig_sel - new_sel
     keep_ratio = 1.0 - (len(missing) / max(1, len(orig_sel)))
@@ -145,12 +141,38 @@ def beautify(target: Path, context: str, backend) -> Dict[str, Any]:
                 "missing_sample": sorted(missing)[:8]}
     if len(new) < len(original) * 0.6:
         return {"applied": False, "reason": "output too short — likely truncated"}
+    if _INJECTION.search(new):
+        return {"applied": False, "reason": "rejected: external/url/@import/script injection"}
+    return {}
 
-    backup = target.with_suffix(target.suffix + ".bak")
+
+def beautify(target: Path, context: str, backend) -> Dict[str, Any]:
+    original = target.read_text(encoding="utf-8")
+    prompt = (f"Design context (self-ingested):\n{context}\n\n"
+              f"Improve this stylesheet (return the whole file):\n\n{original}")
+    try:
+        out = backend.complete(prompt, _BEAUTIFY_SYS, timeout=240)
+    except Exception as exc:
+        return {"applied": False, "reason": f"model call failed: {exc}"}
+    new = strip_fence(out)
+
+    rejection = _gate(original, new)
+    if rejection:
+        return rejection
+
+    # Immutable pristine original, written once and never overwritten, so repeated
+    # runs can always revert to the true baseline (Skeptic finding 2).
+    pristine = target.with_suffix(target.suffix + ".orig")
+    if not pristine.exists():
+        shutil.copy2(target, pristine)
+    # Timestamped rolling backup — never clobbers a prior backup.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    backup = target.with_suffix(f"{target.suffix}.{stamp}.bak")
     shutil.copy2(target, backup)
     target.write_text(new, encoding="utf-8")
-    return {"applied": True, "backup": str(backup), "before_bytes": len(original),
-            "after_bytes": len(new), "selectors_kept": len(orig_sel), "keep_ratio": round(keep_ratio, 3)}
+    return {"applied": True, "backup": str(backup), "pristine": str(pristine),
+            "before_bytes": len(original), "after_bytes": len(new),
+            "selectors_kept": len(_selectors(original)), "keep_ratio": 1.0}
 
 
 @dataclass
@@ -166,7 +188,6 @@ class ImproveReport:
 
 
 def run(target: Optional[Path] = None) -> ImproveReport:
-    from maximillian.synthesizer import detect_backend
     rep = ImproveReport()
     start = time.time()
     target = target or (_REPO / "frontend" / "graphos.css")
@@ -187,7 +208,7 @@ def run(target: Optional[Path] = None) -> ImproveReport:
     top = rep.hebbian[0]["module"] if rep.hebbian else "—"
     step("Hebbian", "reinforce", f"top module {top} (reinforced {rep.hebbian[0]['reinforced'] if rep.hebbian else 0})")
 
-    backend = detect_backend()
+    backend = _be.get_backend()
     rep.backend = backend.name if backend else "none"
     if backend is None:
         rep.beautify = {"applied": False, "reason": "no model in environment"}

@@ -45,10 +45,21 @@ class Settings:
     max_nodes_cap: int = field(default_factory=lambda: _env_int("GRAPHOS_MAX_NODES", 40))
     cors_origins: List[str] = field(default_factory=lambda: _env_list("GRAPHOS_CORS_ORIGINS", ["*"]))
     job_workers: int = field(default_factory=lambda: _env_int("GRAPHOS_JOB_WORKERS", 2))
+    job_queue_max: int = field(default_factory=lambda: _env_int("GRAPHOS_JOB_QUEUE_MAX", 64))
+    job_timeout_s: int = field(default_factory=lambda: _env_int("GRAPHOS_JOB_TIMEOUT", 240))
     request_log: bool = field(default_factory=lambda: _env_bool("GRAPHOS_REQUEST_LOG", True))
+    # Security
+    api_key: str = field(default_factory=lambda: os.environ.get("GRAPHOS_API_KEY", "").strip())
+    # Code-execution / self-modifying endpoints (propose, self-improve) — OFF by default.
+    enable_foundry: bool = field(default_factory=lambda: _env_bool("GRAPHOS_ENABLE_FOUNDRY", False))
 
     def ensure_dirs(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def cors_allow_credentials(self) -> bool:
+        # Never combine credentialed CORS with a wildcard origin (Guardian).
+        return "*" not in self.cors_origins
 
 
 settings = Settings()

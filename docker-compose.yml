@@ -1,6 +1,9 @@
-# Graphos stack: web app + Redis-backed telemetry/graph store.
-# Redis fronts the DSPy -> Arize Phoenix telemetry path (graph-redis, with
-# raw redis as the automatic fallback). Phoenix is wired via env when present.
+# Graphos — Graph Intelligence Workspace.
+# Single-node deployment. Durable state (SQLite + foundry portfolio) lives on a
+# named volume so restarts/redeploys do not wipe sessions, graphs or artifacts.
+# NOTE: this is a single-replica design (in-process jobs + SQLite). For
+# horizontal scale, move the store to Postgres and jobs to a broker — the
+# Store/run contract is already shaped for that swap.
 services:
   graphos:
     build: .
@@ -9,34 +12,24 @@ services:
       - "8080:8080"
     environment:
       GRAPHOS_PORT: "8080"
-      GRAPHOS_REDIS_URL: "redis://graph-redis:6379/0"
-      GRAPHOS_REDIS_FALLBACK_URL: "redis://raw-redis:6379/0"
-      # PHOENIX_COLLECTOR_ENDPOINT: "http://phoenix:6006"
-    depends_on:
-      graph-redis:
-        condition: service_healthy
-      raw-redis:
-        condition: service_healthy
+      GRAPHOS_DB_PATH: /app/graphos_data/graphos.db
+      # Lock down for exposure: set an API key, restrict CORS, keep foundry off.
+      # GRAPHOS_API_KEY: "change-me"
+      # GRAPHOS_CORS_ORIGINS: "https://app.example.com"
+      GRAPHOS_ENABLE_FOUNDRY: "0"   # code-exec / self-modify endpoints OFF by default
+    volumes:
+      - graphos-data:/app/graphos_data
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/health/live"]
+      interval: 30s
+      timeout: 4s
+      start_period: 10s
+      retries: 3
     restart: unless-stopped
 
-  graph-redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
-    volumes:
-      - graph-redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-
-  raw-redis:
-    image: redis:7-alpine
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-
 volumes:
-  graph-redis-data:
+  graphos-data:

@@ -21,11 +21,10 @@ from models import (
     ThoughtGraph, ThoughtType,
 )
 
-logger = logging.getLogger("graphos.live_engine")
+from . import backend as _be
+from .llm_parse import extract_json
 
-_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
-_backend = None
-_detected = False
+logger = logging.getLogger("graphos.live_engine")
 
 _SYS = (
     "You are a knowledge-graph engine. Output ONLY one JSON object, no prose, no "
@@ -40,29 +39,12 @@ _SYS = (
 )
 
 
-def _get_backend():
-    global _backend, _detected
-    if _detected:
-        return _backend
-    _detected = True
-    if os.environ.get("GRAPHOS_DISABLE_LIVE"):
-        return None
-    try:
-        from maximillian.synthesizer import detect_backend
-        _backend = detect_backend()
-    except Exception as exc:  # pragma: no cover
-        logger.warning("backend detection failed: %s", exc)
-        _backend = None
-    return _backend
-
-
 def is_live() -> bool:
-    return _get_backend() is not None
+    return _be.is_live()
 
 
 def backend_name() -> str:
-    b = _get_backend()
-    return b.name if b else "none"
+    return _be.backend_name()
 
 
 def _enum(value: str, enum_cls, default):
@@ -81,7 +63,7 @@ def _clamp(x, lo=0.05, hi=0.99) -> float:
 
 def generate(input_text: str, params: GraphParameters, mode: str) -> Optional[ThoughtGraph]:
     """Generate a real graph via the live model; None on any failure."""
-    backend = _get_backend()
+    backend = _be.get_backend()
     if backend is None:
         return None
     n = max(5, min(params.max_nodes, 18))
@@ -93,14 +75,9 @@ def generate(input_text: str, params: GraphParameters, mode: str) -> Optional[Th
         logger.warning("live generation call failed: %s", exc)
         return None
 
-    m = _JSON_RE.search(raw or "")
-    if not m:
-        logger.warning("no JSON in model output")
-        return None
-    try:
-        data = json.loads(m.group(0))
-    except Exception as exc:
-        logger.warning("JSON parse failed: %s", exc)
+    data = extract_json(raw)
+    if not data:
+        logger.warning("no parseable JSON in model output")
         return None
 
     raw_thoughts = data.get("thoughts") or []

@@ -2,62 +2,108 @@
 
 Live model calls take tens of seconds, so generation runs off the request
 thread in a bounded worker pool. Each job is a persisted ``run`` row — status,
-engine, latency and error — which doubles as the observability record. On
-success the graph is stored and a default artifact is created.
+engine, latency, error — which doubles as the observability record.
 
-In-process and single-node by design (sufficient here); the Store/run contract
-is already shaped so this can be swapped for a real queue (Celery/RQ) later.
+Hardened per the council audit: bounded queue (reject, don't buffer unbounded),
+per-job wall-clock timeout, and a shared ``run_generation`` so the sync and
+async paths cannot drift. In-process/single-node by design; the Store/run
+contract is shaped so this can move to a durable broker later.
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
+from concurrent.futures import TimeoutError as FuturesTimeout
+from typing import Any, Dict
 
-from .service import GraphRequest, GraphServiceError, generate_graph
+from .config import settings
+from .service import GraphRequest, generate_graph
 from .store import Store
 
 logger = logging.getLogger("graphos.jobs")
 
 
+class QueueFull(RuntimeError):
+    """Raised when the in-flight job bound is reached."""
+
+
+def run_generation(store: Store, session_id: str, run_id: str, request: GraphRequest) -> Dict[str, Any]:
+    """The single run state machine: start → generate → persist → finish.
+
+    Used by both the async worker and the synchronous endpoint so the lifecycle
+    is owned in exactly one place (Architect finding 3).
+    """
+    store.start_run(run_id)
+    start = time.time()
+    try:
+        payload = generate_graph(request)
+        latency_ms = int((time.time() - start) * 1000)
+        gid = store.save_graph(session_id, run_id, payload)
+        tokens_est = (len(request.input_text)
+                      + sum(len(t.get("content", "")) for t in payload.get("thoughts", []))) // 4
+        store.create_artifact(
+            session_id, gid, "graph", f"Graph · {request.input_text[:48]}",
+            {"nodes": payload["metrics"]["total_nodes"],
+             "quality": payload["metrics"]["quality_score"], "engine": payload.get("engine")})
+        store.finish_run(run_id, status="succeeded", engine=payload.get("engine"),
+                         graph_id=gid, latency_ms=latency_ms, tokens_est=tokens_est)
+        logger.info("run %s succeeded in %dms (engine=%s)", run_id, latency_ms, payload.get("engine"))
+        payload["graph_id"] = gid
+        payload["run_id"] = run_id
+        payload["session_id"] = session_id
+        return payload
+    except Exception as exc:
+        store.finish_run(run_id, status="failed", error=str(exc)[:500],
+                         latency_ms=int((time.time() - start) * 1000))
+        logger.warning("run %s failed: %s", run_id, exc)
+        raise
+
+
 class JobManager:
     def __init__(self, store: Store, workers: int = 2) -> None:
         self.store = store
-        self._pool = ThreadPoolExecutor(max_workers=max(1, workers), thread_name_prefix="graphos-job")
+        workers = max(1, workers)
+        self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="graphos-job")
+        self._watch = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="graphos-watch")
+        self._lock = threading.Lock()
+        self._inflight = 0
+        self._queue_max = settings.job_queue_max
+        self._timeout = settings.job_timeout_s
 
     def submit(self, session_id: str, request: GraphRequest) -> str:
+        with self._lock:
+            if self._inflight >= self._queue_max:
+                raise QueueFull(f"job queue full ({self._queue_max} in flight)")
+            self._inflight += 1
         run_id = self.store.create_run(session_id, request.input_text, request.model_dump(mode="json"))
         self._pool.submit(self._execute, run_id, session_id, request)
         return run_id
 
     def _execute(self, run_id: str, session_id: str, request: GraphRequest) -> None:
-        self.store.start_run(run_id)
         start = time.time()
         try:
-            payload = generate_graph(request)
-            latency_ms = int((time.time() - start) * 1000)
-            gid = self.store.save_graph(session_id, run_id, payload)
-            tokens_est = (len(request.input_text) +
-                          sum(len(t.get("content", "")) for t in payload.get("thoughts", []))) // 4
-            self.store.create_artifact(
-                session_id, gid, "graph", f"Graph · {request.input_text[:48]}",
-                {"nodes": payload["metrics"]["total_nodes"],
-                 "quality": payload["metrics"]["quality_score"],
-                 "engine": payload.get("engine")})
-            self.store.finish_run(run_id, status="succeeded", engine=payload.get("engine"),
-                                  graph_id=gid, latency_ms=latency_ms, tokens_est=tokens_est)
-            logger.info("run %s succeeded in %dms (engine=%s)", run_id, latency_ms, payload.get("engine"))
-        except GraphServiceError as exc:
-            self._fail(run_id, start, f"generation error: {exc}")
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.exception("run %s crashed", run_id)
-            self._fail(run_id, start, f"unexpected error: {exc}")
+            # Run generation under a hard wall-clock cap; a hung model call must
+            # not hold a worker forever (Skeptic finding 3).
+            fut = self._watch.submit(run_generation, self.store, session_id, run_id, request)
+            try:
+                fut.result(timeout=self._timeout)
+            except FuturesTimeout:
+                self.store.finish_run(run_id, status="failed", error="generation timed out",
+                                      latency_ms=int((time.time() - start) * 1000))
+                logger.warning("run %s timed out after %ss", run_id, self._timeout)
+            except Exception:
+                pass  # run already marked failed inside run_generation
+        finally:
+            with self._lock:
+                self._inflight -= 1
 
-    def _fail(self, run_id: str, start: float, error: str) -> None:
-        self.store.finish_run(run_id, status="failed", error=error[:500],
-                              latency_ms=int((time.time() - start) * 1000))
+    def inflight(self) -> int:
+        with self._lock:
+            return self._inflight
 
     def shutdown(self) -> None:
         self._pool.shutdown(wait=False, cancel_futures=True)
+        self._watch.shutdown(wait=False, cancel_futures=True)
