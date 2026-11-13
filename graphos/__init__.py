@@ -6,4 +6,4 @@ mirrors the Claude-format left-to-right progression:
 conversation -> plan -> background agents -> artifacts.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"

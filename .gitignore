@@ -12,3 +12,6 @@ GRAPHOS_EXECUTION_LOG.md
 tracking/
 reports/*.html
 models/
+
+# Graphos runtime data (sqlite)
+graphos_data/
